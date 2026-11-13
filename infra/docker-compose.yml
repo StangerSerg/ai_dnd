@@ -1,0 +1,53 @@
+# Сервисы для локальной разработки. Запуск из корня репозитория:
+#   docker compose -f infra/docker-compose.yml up -d
+# Сам бэкенд (api и worker) запускается локально через uv — см. README.
+# Порты открыты только на 127.0.0.1, наружу ничего не торчит.
+name: ai-dnd
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    environment:
+      POSTGRES_USER: ai_dnd
+      POSTGRES_PASSWORD: ai_dnd
+      POSTGRES_DB: ai_dnd
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # Начиная с PostgreSQL 18 образ хранит данные в /var/lib/postgresql/<версия>/...
+      - postgres-data:/var/lib/postgresql
+      # Скрипты первой инициализации: отдельная база для интеграционных тестов.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_dnd -d ai_dnd"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # S3-совместимое хранилище (SeaweedFS). Эндпоинт: http://localhost:8333.
+  # Локально без авторизации: любые ключи доступа подходят.
+  s3:
+    image: chrislusf/seaweedfs:latest
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333"]
+    ports:
+      - "127.0.0.1:8333:8333"
+    volumes:
+      - s3-data:/data
+
+volumes:
+  postgres-data:
+  redis-data:
+  s3-data:

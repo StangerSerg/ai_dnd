@@ -1,0 +1,55 @@
+# Модели, цены и настройки задач ИИ (архитектура, раздел 10).
+# Название модели и цены меняются здесь, а не в коде.
+#
+# Цены — доллары за 1 млн токенов, с https://api-docs.deepseek.com/quick_start/pricing
+# (сверено 13.11.2026). Провайдер меняет их без предупреждения: сверять перед запуском
+# и после каждой новости о тарифах.
+
+providers:
+  deepseek:
+    base_url: https://api.deepseek.com
+    # Часы повышенного тарифа, UTC, с понедельника по пятницу. В остальное время
+    # и в выходные действует сниженный тариф. Китайские праздники не учитываются:
+    # в эти дни стоимость будет посчитана с запасом.
+    peak_hours:
+      - {from: "01:00", to: "04:00"}
+      - {from: "06:00", to: "10:00"}
+
+models:
+  deepseek-flash:
+    provider: deepseek
+    prices:
+      off_peak: {input: 0.15, cached_input: 0.003, output: 0.6}
+      peak: {input: 0.3, cached_input: 0.006, output: 1.2}
+
+  deepseek-v4-pro:
+    provider: deepseek
+    prices:
+      off_peak: {input: 0.66, cached_input: 0.022, output: 1.98}
+      peak: {input: 1.32, cached_input: 0.044, output: 3.96}
+
+# Какая модель и с какими настройками решает каждую задачу.
+# thinking — размышления перед ответом: точнее, но дольше и дороже (у DeepSeek они
+# включены по умолчанию, поэтому выключаем явно там, где важна скорость).
+# Это стартовые значения: окончательный выбор — по замерам подэтапа 1.8.
+tasks:
+  # Текст для игроков: описания, реплики NPC.
+  narration: {model: deepseek-flash, thinking: false, max_tokens: 800, temperature: 1.0, timeout: 60}
+  # Ход ведущего с инструментами: решить, нужна ли проверка, и вызвать её.
+  dm_tools: {model: deepseek-flash, thinking: false, max_tokens: 800, temperature: 0.7, timeout: 60}
+  # Сводка «что было раньше».
+  summary: {model: deepseek-flash, thinking: false, max_tokens: 700, temperature: 0.3, timeout: 60}
+  # Действие ИИ-игрока.
+  ai_player: {model: deepseek-flash, thinking: false, max_tokens: 400, temperature: 1.0, timeout: 45}
+  # Разбор сценария из файла на сущности.
+  import: {model: deepseek-flash, thinking: true, reasoning_effort: low, max_tokens: 16000, timeout: 300}
+  # Шаблон карточки по описанию словами.
+  sheet_gen: {model: deepseek-flash, thinking: true, reasoning_effort: low, max_tokens: 16000, timeout: 300}
+
+retries:
+  # Сколько раз пробовать при временном сбое: таймаут, обрыв связи, перегрузка.
+  attempts: 3
+  # Пауза перед повтором, секунды: каждая следующая вдвое длиннее.
+  backoff_seconds: 1.0
+  # Сколько раз просить модель исправить ответ, не прошедший проверку по схеме.
+  validation_attempts: 2

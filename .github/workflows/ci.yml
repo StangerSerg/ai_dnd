@@ -1,0 +1,92 @@
+# Автоматические проверки на каждый пуш: стиль, типы, границы модулей, тесты.
+# Те же команды локально — в README, раздел «Проверки».
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+# Новый пуш в ту же ветку отменяет ещё не закончившуюся проверку предыдущего.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Бэкенд
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: backend
+
+    # Те же образы, что в infra/docker-compose.yml.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: ai_dnd
+          POSTGRES_PASSWORD: ai_dnd
+          POSTGRES_DB: ai_dnd_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ai_dnd -d ai_dnd_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      AI_DND_ENVIRONMENT: test
+      AI_DND_DATABASE_URL: postgresql+asyncpg://ai_dnd:ai_dnd@localhost:5432/ai_dnd_test
+      AI_DND_TEST_DATABASE_URL: postgresql+asyncpg://ai_dnd:ai_dnd@localhost:5432/ai_dnd_test
+      AI_DND_REDIS_URL: redis://localhost:6379/0
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Установить uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          # Та же ветка версий, что у разработчика: формат uv.lock не разойдётся.
+          version: "0.13.x"
+          working-directory: backend
+
+      - name: Установить зависимости
+        run: uv sync --locked
+
+      - name: Стиль (ruff check)
+        run: uv run ruff check --output-format=github
+
+      - name: Форматирование (ruff format)
+        run: uv run ruff format --check
+
+      - name: Типы (mypy)
+        run: uv run mypy
+
+      - name: Границы модулей (import-linter)
+        run: uv run lint-imports
+
+      - name: Тесты
+        run: uv run pytest
+
+      - name: Интеграционные тесты (PostgreSQL и Redis)
+        run: uv run pytest -m integration
+
+      - name: Воркер выполняет тестовую задачу
+        run: |
+          uv run taskiq worker ai_dnd.worker:broker ai_dnd.tasks &
+          uv run python -m ai_dnd.devtools ping-worker --timeout 30

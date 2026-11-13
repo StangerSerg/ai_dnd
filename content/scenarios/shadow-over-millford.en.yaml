@@ -1,0 +1,325 @@
+# Demo scenario. Four scenes for one evening, three level 3 heroes.
+# Russian version: shadow-over-millford.ru.yaml — same ids and numbers, different language.
+scenario:
+  title: "Shadow over Millford"
+  language: en
+  ruleset: dnd5e-srd@1
+  sheet_template: srd5-basic@1
+  start_scene: tavern
+  synopsis: >-
+    People are vanishing from the village of Millford. The Cult of the Serpent takes them:
+    the captives are held in the cellar of the old mill and readied for a rite on the night
+    of the new moon. Boris the innkeeper is the cult's informant; he tells them who will
+    not be missed. The heroes must find the trail, reach the mill, and stop the rite while
+    the captives are still alive. A good ending: the captives are saved, the priest is
+    defeated, and a letter from the cellar hints that someone else stands behind the cult.
+  tone: >-
+    A grim country tale: mist over the river, the creak of a mill wheel, wary peasants.
+    The horror stays off-screen and cruelty is never lingered on. The heroes should feel
+    needed: the whole village is rooting for them.
+
+scenes:
+  - id: tavern
+    title: "The Lame Goose tavern"
+    read_aloud: >-
+      Warm firelight, the smell of ale and wet wool. The room is strangely quiet: the locals
+      sit in the corners and fall silent the moment you walk in. A round-faced innkeeper
+      fusses behind the bar, and by the window a young woman twists a notice with uneven
+      letters in her hands.
+    dm_notes: >-
+      The hook. Marta comes up to the heroes herself and asks them to find her father.
+      Boris tries to talk them out of it and steer the conversation away: wolves, bandits
+      on the highway, "they just left". If the heroes fail to get Boris talking, Marta
+      provides the lead: her father had been going to the old mill these past few days.
+      The scene cannot be failed — the road to the mill is open either way.
+    npcs: [boris, marta]
+    handouts: [reward_notice]
+    clues: [clue_symbol, clue_boris_lies, clue_mill]
+    exits: [mill_road]
+    checks:
+      - id: notice_symbol
+        description: "A hero looks over the room, the bar, or the tableware."
+        skill: perception
+        dc: 14
+        on_success:
+          reveal: [clue_symbol]
+      - id: read_boris
+        description: "A hero watches Boris closely during the conversation."
+        skill: insight
+        dc: 12
+        on_success:
+          reveal: [clue_boris_lies]
+      - id: press_boris
+        description: "A hero threatens Boris or corners him with a clue."
+        skill: intimidation
+        dc: 13
+        on_success:
+          reveal: [clue_mill]
+          text: "Boris goes pale, glances at the door, and whispers everything he knows."
+        on_failure:
+          text: "Boris raises a fuss: \"Good people, look what's going on here!\" The locals eye the heroes."
+      - id: persuade_boris
+        description: "A hero wins Boris over the kind way: promises protection from the cult."
+        skill: persuasion
+        dc: 15
+        on_success:
+          reveal: [clue_mill]
+          text: "Boris is silent for a long while, then nods toward the back door: \"Not here.\""
+
+  - id: mill_road
+    title: "The road to the mill"
+    read_aloud: >-
+      The old road follows the river. Mist lies in the hollows, and unmown grass stands
+      as tall as a man along the roadside. Ahead, around the bend, a fallen aspen blocks
+      the way — the trunk was cut very recently.
+    dm_notes: >-
+      An ambush. The cultists hired four goblins to watch the road and scare off the
+      curious. The goblins hide in the grass on both sides of the tree and attack when
+      the heroes come up to it. They fight like cowards: a wounded goblin runs. A captured
+      goblin, to save its skin, tells that "the hooded folk" pay in silver and stay at the mill.
+    encounters: [goblin_ambush]
+    clues: [clue_tracks]
+    exits: [tavern, old_mill]
+    checks:
+      - id: spot_ambush
+        description: "The heroes approach the fallen tree."
+        skill: perception
+        dc: 13
+        on_success:
+          text: "A hero notices trampled grass and the glint of a blade: the party is not caught off guard."
+        on_failure:
+          text: "The goblins strike by surprise: they have advantage on attacks in the first round."
+      - id: read_tracks
+        description: "A hero studies the tracks on the road."
+        skill: survival
+        dc: 12
+        on_success:
+          reveal: [clue_tracks]
+
+  - id: old_mill
+    title: "The old mill"
+    read_aloud: >-
+      The mill looms black above the millpond. The wheel has not turned in years and one
+      corner of the roof has caved in, yet light flickers in the cracks of the shutters
+      and smoke drifts from the chimney. Two figures in long cloaks shift from foot to foot
+      by the door.
+    dm_notes: >-
+      Two cultists guard the entrance. If there is noise, one of them tries to reach the
+      trapdoor and warn those below: then the heroes are expected in the cellar. The
+      trapdoor is hidden under empty sacks in the far corner, bolted from inside and
+      padlocked from outside. The key hangs on the belt of one of the guards.
+    encounters: [mill_guards]
+    items: [cellar_key]
+    clues: [clue_trapdoor]
+    exits: [mill_road, cellar]
+    checks:
+      - id: sneak_up
+        description: "The heroes creep up to the mill."
+        skill: stealth
+        dc: 13
+        on_success:
+          text: "The guards do not notice the heroes: the first attack against them has advantage."
+        on_failure:
+          text: "A twig snaps underfoot. The guards reach for their blades."
+      - id: find_trapdoor
+        description: "A hero searches the mill."
+        skill: investigation
+        dc: 12
+        on_success:
+          reveal: [clue_trapdoor]
+      - id: pick_lock
+        description: "A hero picks the lock on the trapdoor."
+        skill: sleight_of_hand
+        dc: 15
+        on_success:
+          text: "The lock opens without a sound."
+      - id: force_trapdoor
+        description: "A hero breaks the trapdoor open."
+        skill: athletics
+        dc: 15
+        on_success:
+          text: "The trapdoor gives way with a crack — those below surely heard it."
+
+  - id: cellar
+    title: "The mill cellar"
+    read_aloud: >-
+      A steep stair leads down into a damp cellar. By the light of smoking lamps you see
+      bound people along the far wall, a stone bowl in the middle of the floor, and a
+      figure in a scaled mask standing over it. Two hooded shapes drone a chant that
+      makes your temples ache.
+    dm_notes: >-
+      The climax. The Serpent Priest begins the rite as soon as he realizes strangers have
+      come to the mill. The rite takes three rounds; if it is not stopped, the first
+      captive — Tikhon the miller — dies. Stopping it is simple: break or overturn the bowl
+      (an action, no check) or take the priest out of the fight. The cultists fight to the
+      end. After the fight the captives need to be untied and calmed; Tikhon tells that
+      the priest was expecting "a guest from Raven Tower".
+    npcs: [serpent_priest, tikhon]
+    encounters: [ritual]
+    items: [ritual_bowl, serpent_amulet]
+    handouts: [cult_letter]
+    clues: [clue_ritual]
+    exits: [old_mill]
+    checks:
+      - id: know_ritual
+        description: "A hero tries to understand what rite is under way."
+        skill: religion
+        dc: 13
+        on_success:
+          reveal: [clue_ritual]
+      - id: resist_chant
+        description: "At the start of the fight, every hero who hears the chant."
+        save: wis
+        dc: 11
+        on_failure:
+          text: "The hero is frightened until the end of their next turn."
+      - id: tend_prisoners
+        description: "A hero helps the weakened captives after the fight."
+        skill: medicine
+        dc: 10
+        on_success:
+          text: "The captives come to and can walk on their own."
+        on_failure:
+          text: "Two of them have to be carried: the way back to the village takes twice as long."
+
+npcs:
+  - id: boris
+    name: "Boris"
+    description: "A round-faced innkeeper in a greasy apron. He smiles at everyone at once and looks no one in the eye."
+    personality: >-
+      Fussy and fawning, scared to death of the cult. He talks a lot about nothing and
+      pours ale on the house so that guests ask no questions. Not a villain: he was
+      frightened into it.
+    secrets:
+      - "He works for the cult: he reports which travelers and lonely villagers will not be missed soon."
+      - "He knows the cultists gather at the old mill and carries food to them."
+    attitude: neutral
+    statblock: srd:commoner
+
+  - id: marta
+    name: "Marta"
+    description: "The miller's daughter, about twenty. Her eyes are red from crying, but she stands straight."
+    personality: >-
+      Stubborn and direct. Her father vanished three days ago and she is done waiting:
+      if the heroes refuse, she will go to the mill herself. She is ready to give up all
+      her savings.
+    attitude: friendly
+    statblock: srd:commoner
+
+  - id: tikhon
+    name: "Tikhon"
+    description: "A gray-haired miller with a split lip, bound hand and foot."
+    personality: >-
+      A sturdy old man of few words. Weak from hunger but clear-headed. He overheard the
+      cultists talking and remembered what mattered.
+    secrets:
+      - "He heard the priest speak of \"a guest from Raven Tower\" expected by the new moon."
+    attitude: friendly
+    statblock: srd:commoner
+
+  - id: serpent_priest
+    name: "Serpent Priest"
+    description: "A tall figure in a mask of snake scales. The voice is quiet and even."
+    personality: >-
+      A calm fanatic. He neither shouts nor threatens — he explains to the heroes that
+      they are too late and will change nothing. He does not surrender.
+    secrets:
+      - "He is only an agent: his orders arrive in letters from Raven Tower."
+    attitude: hostile
+    statblock: srd:cult_fanatic
+
+items:
+  - id: cellar_key
+    name: "Trapdoor key"
+    description: "A heavy iron key on a cord. It hangs on the belt of one of the mill guards."
+    visibility: dm
+
+  - id: ritual_bowl
+    name: "Ritual bowl"
+    description: "A rough stone bowl with a serpent carved around the rim. It stands in the middle of the cellar."
+
+  - id: serpent_amulet
+    name: "Silver amulet"
+    description: >-
+      An amulet shaped like a serpent biting its own tail. It hangs around the priest's
+      neck. The silverwork is fine — nothing like it is made in the village.
+    visibility: dm
+
+clues:
+  - id: clue_symbol
+    text: "A serpent biting its own tail is scratched on the bottom of a mug. The same mark is on the frame of the back door."
+  - id: clue_boris_lies
+    text: "Boris is lying. He knows more about the missing than he says, and he is very afraid someone will notice."
+  - id: clue_mill
+    text: "The hooded folk gather at the old mill. Boris carries food to them every third night."
+  - id: clue_tracks
+    text: "A loaded cart passed along the road not long ago, with bare footprints beside it. Everything leads to the mill."
+  - id: clue_trapdoor
+    text: "Under the empty sacks in the corner there is a trapdoor to the cellar. Smoke seeps through the cracks, and chanting can be heard."
+  - id: clue_ritual
+    text: >-
+      The rite depends on the bowl: as long as it is whole and in place, the priest can
+      continue. Overturning or breaking the bowl stops the rite.
+
+handouts:
+  - id: reward_notice
+    title: "Notice by the door"
+    text: >-
+      "Tikhon the miller is missing. Twenty gold pieces and lasting gratitude to whoever
+      finds him alive. Ask for Marta at the Lame Goose."
+    visibility: public
+
+  - id: cult_letter
+    title: "Letter from the cellar"
+    text: >-
+      "Everything must be ready by the new moon. The guest arrives after midnight and will
+      be displeased if the bowl is empty. Do not fail us again. — V. B."
+    visibility: dm
+
+encounters:
+  - id: goblin_ambush
+    title: "Ambush at the fallen tree"
+    description: >-
+      The goblins strike from the grass and avoid melee with anyone standing firm.
+      A wounded goblin drops its weapon and runs for the river.
+    creatures:
+      - {statblock: "srd:goblin", count: 4}
+
+  - id: mill_guards
+    title: "The mill guards"
+    description: "Two cultists by the door. If the fight goes badly, one runs to the trapdoor to warn the others."
+    creatures:
+      - {statblock: "srd:cultist", count: 2}
+
+  - id: ritual
+    title: "The rite in the cellar"
+    description: >-
+      The priest stays by the bowl and continues the rite until he is forced to defend
+      himself. The cultists cover him and do not retreat.
+    creatures:
+      - {statblock: "srd:cult_fanatic", name: "Serpent Priest"}
+      - {statblock: "srd:cultist", count: 2}
+
+lore:
+  - id: village
+    title: "Millford"
+    text: >-
+      A village of some thirty households by the ford across the Sleepy River. It lives
+      on flour, fish, and travelers from the highway. The old mill upstream has been
+      abandoned for ten years or so — a new one was built closer to the village.
+
+  - id: serpent_cult
+    title: "The Cult of the Serpent"
+    text: >-
+      A secret society that worships the Serpent devouring its own tail, an image of
+      eternal return. The cultists believe a sacrifice on the new moon prolongs the life
+      of their patron. The cell in Millford is one of several.
+    visibility: dm
+
+map:
+  style: parchment
+  nodes:
+    tavern: {x: 120, y: 340, icon: inn}
+    mill_road: {x: 260, y: 300, icon: road}
+    old_mill: {x: 400, y: 220, icon: mill}
+    cellar: {x: 430, y: 250, icon: cave}

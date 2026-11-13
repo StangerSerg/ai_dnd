@@ -1,0 +1,5 @@
+Миграции базы данных (Alembic, async-шаблон).
+
+Применить все миграции:      uv run alembic upgrade head
+Создать миграцию по моделям: uv run alembic revision --autogenerate -m "описание"
+Откатить одну миграцию:      uv run alembic downgrade -1

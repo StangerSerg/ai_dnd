@@ -1,0 +1,42 @@
+# Проверки перед каждым коммитом. Установка: cd backend && uv run pre-commit install
+# ruff и mypy запускаются из окружения backend (uv), чтобы версии совпадали с uv.lock.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        exclude: ^backend/uv\.lock$
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --directory backend ruff check --fix
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.py$
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --directory backend ruff format
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.py$
+      - id: mypy
+        name: mypy
+        entry: uv run --directory backend mypy
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.py$
+      - id: lint-imports
+        name: import-linter
+        entry: uv run --directory backend lint-imports
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.py$

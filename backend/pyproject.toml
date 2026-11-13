@@ -1,0 +1,138 @@
+[project]
+name = "ai-dnd"
+version = "0.1.0"
+description = "Портал для игры в настольные RPG с живым ведущим или ИИ-ведущим"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.1",
+    "asyncpg>=0.32.0",
+    "fastapi>=0.162.2",
+    "openai>=3.50.0",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.16.2",
+    "pyyaml>=6.0.3",
+    "redis>=8.1.0",
+    "simpleeval>=1.0.8",
+    "sqlalchemy[asyncio]>=2.1.8",
+    "structlog>=26.1.0",
+    "taskiq>=0.13.0",
+    "taskiq-redis>=1.2.4",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.0",
+    "import-linter>=2.16",
+    "mypy>=2.4.1",
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
+    "ruff>=0.17.4",
+    "taskiq[reload]>=0.13.0",
+    "types-pyyaml>=6.0.12.20261113",
+]
+
+# --- ruff: проверка стиля и форматирование ---
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # сортировка импортов
+    "N",        # именование
+    "UP",       # современный синтаксис Python
+    "B",        # частые ошибки
+    "C4",       # генераторы и включения
+    "SIM",      # упрощения
+    "RET",      # return
+    "PT",       # стиль pytest
+    "ASYNC",    # ошибки в async-коде
+    "RUF",      # правила самого ruff
+]
+ignore = [
+    # Кириллица в строках, docstring и комментариях — это нормально для проекта.
+    "RUF001", "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ai_dnd"]
+
+# --- mypy: проверка типов ---
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests", "alembic"]
+mypy_path = "src"
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# У simpleeval нет аннотаций типов.
+module = ["simpleeval"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# --- import-linter: границы модулей (uv run lint-imports) ---
+# Движок правил и вычислитель формул — чистые функции без ввода-вывода (архитектура, 2.2 и 4).
+# Чтобы так и оставалось, им запрещено импортировать остальной проект.
+
+[tool.importlinter]
+root_package = "ai_dnd"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Вычислитель формул не импортирует остальной проект"
+type = "forbidden"
+source_modules = ["ai_dnd.sheets.formulas"]
+# Звёздочка — все модули этого уровня; сам sheets.formulas из запрета исключается.
+forbidden_modules = ["ai_dnd.*", "ai_dnd.sheets.*"]
+
+[[tool.importlinter.contracts]]
+name = "Движок правил импортирует из проекта только вычислитель формул"
+type = "forbidden"
+source_modules = ["ai_dnd.rules"]
+forbidden_modules = ["ai_dnd.*", "ai_dnd.sheets.*"]
+# Единственное исключение: rules -> sheets.formulas.
+ignore_imports = [
+    "ai_dnd.rules -> ai_dnd.sheets.formulas",
+    "ai_dnd.rules -> ai_dnd.sheets.formulas.**",
+    "ai_dnd.rules.** -> ai_dnd.sheets.formulas",
+    "ai_dnd.rules.** -> ai_dnd.sheets.formulas.**",
+]
+# Пока движок формулами не пользуется, исключение ничему не соответствует — это не ошибка.
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "Движок правил и формулы работают без базы, сети и очередей"
+type = "forbidden"
+source_modules = ["ai_dnd.rules", "ai_dnd.sheets.formulas"]
+forbidden_modules = [
+    "sqlalchemy", "asyncpg", "alembic", "redis", "taskiq", "taskiq_redis",
+    "fastapi", "starlette", "uvicorn", "httpx", "httpx2", "openai",
+]
+
+# --- pytest ---
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Интеграционные тесты по умолчанию пропускаются: uv run pytest -m integration
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not integration"]
+markers = [
+    "integration: нужны запущенные сервисы из infra/docker-compose.yml",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
