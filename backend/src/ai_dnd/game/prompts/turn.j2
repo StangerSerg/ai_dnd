@@ -1,0 +1,70 @@
+# Current scene: {{ scene.title }} (id: {{ scene.id }})
+{% if scene.read_aloud %}
+Read-aloud text: {{ scene.read_aloud }}
+{% endif %}
+{% if scene.dm_notes %}
+DM notes: {{ scene.dm_notes }}
+{% endif %}
+{% if npcs %}
+NPCs here:
+{% for npc in npcs %}
+- {{ npc.name }} (id: {{ npc.id }}), attitude: {{ npc.attitude }}{% if npc.description %}. Looks: {{ npc.description }}{% endif %}{% if npc.personality %}. Personality: {{ npc.personality }}{% endif %}{% if npc.secrets %}. Secrets (DM only): {{ npc.secrets | join(" ") }}{% endif %}
+
+{% endfor %}
+{% endif %}
+{% if checks %}
+Prepared checks (use as scene_check):
+{% for check in checks %}
+- {{ check.id }}: {{ check.kind }} {{ check.subject }}{% if check.dc %} DC {{ check.dc }}{% endif %}{% if check.when %} — when: {{ check.when }}{% endif %}{% if check.reveals %} — on success reveals: {{ check.reveals | join(", ") }}{% endif %}
+
+{% endfor %}
+{% endif %}
+{% if entities %}
+Clues, items and handouts here:
+{% for entity in entities %}
+- {{ entity.id }} [{{ entity.status }}]: {{ entity.text }}
+{% endfor %}
+{% endif %}
+{% if encounters %}
+Encounters here:
+{% for encounter in encounters %}
+- {{ encounter.id }}: {{ encounter.title }} — {{ encounter.creatures }}{% if encounter.description %}. {{ encounter.description }}{% endif %}
+
+{% endfor %}
+{% endif %}
+{% if exits %}
+Exits:
+{% for exit in exits %}
+- {{ exit.id }}: {{ exit.title }}
+{% endfor %}
+{% endif %}
+
+# Party status
+{% for member in party %}
+- {{ member.name }} (id: {{ member.id }}): HP {{ member.hp }}, AC {{ member.ac }}{% if member.conditions %}, conditions: {{ member.conditions }}{% endif %}{% if member.items %}, found items: {{ member.items }}{% endif %}
+
+{% endfor %}
+{% if revealed %}
+
+# Already discovered by the players
+{% for line in revealed %}
+- {{ line }}
+{% endfor %}
+{% endif %}
+{% if facts %}
+
+# Your notes
+{% for fact in facts %}
+- {{ fact }}
+{% endfor %}
+{% endif %}
+
+{% if opening %}
+# Session start
+Open the session: set the scene for the players using the read-aloud text and give them a reason to act.
+{% else %}
+# Players' actions
+{% for action in actions %}
+- {{ action.name }} (id: {{ action.actor_id }}): {{ action.text }}
+{% endfor %}
+{% endif %}

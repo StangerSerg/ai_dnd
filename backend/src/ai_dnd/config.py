@@ -5,8 +5,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import PostgresDsn, RedisDsn
+from pydantic import PostgresDsn, RedisDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 class Environment(StrEnum):
@@ -40,7 +42,12 @@ class Settings(BaseSettings):
 
     # Встроенный контент: шаблоны карточек, готовые персонажи, наборы правил, сценарии.
     # По умолчанию — папка content/ в корне репозитория.
-    content_dir: Path = Path(__file__).resolve().parents[3] / "content"
+    content_dir: Path = BACKEND_DIR.parent / "content"
+
+    # Ключ DeepSeek. Без него ИИ-функции не работают, остальное — работает.
+    deepseek_api_key: SecretStr | None = None
+    # Модели, цены и настройки задач ИИ.
+    llm_config: Path = BACKEND_DIR / "config" / "llm.yaml"
 
 
 @lru_cache

@@ -8,6 +8,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import ai_dnd.db.models  # noqa: F401 — регистрирует все таблицы в Base.metadata
 from ai_dnd.config import get_settings
 from ai_dnd.db.base import Base
 

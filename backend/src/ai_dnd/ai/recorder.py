@@ -54,6 +54,17 @@ class MemoryRecorder:
         return sum((call.cost for call in self.calls), Decimal(0))
 
 
+class CompositeRecorder:
+    """Записывает каждый вызов сразу в несколько мест: например, в память и в базу."""
+
+    def __init__(self, *recorders: CallRecorder) -> None:
+        self._recorders = recorders
+
+    async def record(self, call: CallRecord) -> None:
+        for recorder in self._recorders:
+            await recorder.record(call)
+
+
 class DbRecorder:
     """Записи в таблицу ``llm_calls``. Каждая запись — в своей короткой транзакции:
     учёт расходов не должен пропасть, если ход игры откатится."""

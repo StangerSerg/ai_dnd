@@ -21,7 +21,7 @@ from time import perf_counter
 
 from pydantic import BaseModel, ValidationError
 
-from ai_dnd.ai.config import LLMConfig, TaskConfig
+from ai_dnd.ai.config import LLMConfig, TaskConfig, load_llm_config
 from ai_dnd.ai.provider import (
     CompletionRequest,
     LLMError,
@@ -29,6 +29,8 @@ from ai_dnd.ai.provider import (
     LLMTransientError,
     ProviderResult,
 )
+from ai_dnd.ai.providers.deepseek import DeepSeekProvider
+from ai_dnd.ai.providers.fake import FakeProvider
 from ai_dnd.ai.recorder import CallContext, CallRecord, CallRecorder
 from ai_dnd.ai.schemas import (
     LLMResponse,
@@ -40,6 +42,7 @@ from ai_dnd.ai.schemas import (
     ToolSpec,
     Usage,
 )
+from ai_dnd.config import Settings
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,14 +270,22 @@ class LLMGateway:
         )
 
 
-# def build_gateway(settings: Settings, recorder: CallRecorder | None = None) -> LLMGateway:
-#     """Шлюз по настройкам приложения. Провайдер без ключа просто не подключается."""
-#     config = load_llm_config(settings.llm_config)
-#     providers: dict[str, LLMProvider] = {}
-#     key = settings.deepseek_api_key.get_secret_value() if settings.deepseek_api_key else ""
-#     if key and "deepseek" in config.providers:
-#         providers["deepseek"] = DeepSeekProvider(key, config.providers["deepseek"].base_url)
-#     return LLMGateway(config, providers, recorder)
+def build_gateway(
+    settings: Settings, recorder: CallRecorder | None = None, *, fake: bool = False
+) -> LLMGateway:
+    """Шлюз по настройкам приложения. Провайдер без ключа просто не подключается.
+
+    ``fake`` — все задачи отвечает модель-заглушка: проверить цикл без денег и сети.
+    """
+    config = load_llm_config(settings.llm_config)
+    providers: dict[str, LLMProvider] = {}
+    if fake:
+        stub = FakeProvider()
+        return LLMGateway(config, dict.fromkeys(config.providers, stub), recorder)
+    key = settings.deepseek_api_key.get_secret_value() if settings.deepseek_api_key else ""
+    if key and "deepseek" in config.providers:
+        providers["deepseek"] = DeepSeekProvider(key, config.providers["deepseek"].base_url)
+    return LLMGateway(config, providers, recorder)
 
 
 def _request(
