@@ -225,3 +225,4 @@ __marimo__/
 # AI DnD: локальные данные (тома docker, выгрузки, временные файлы)
 /infra/data/
 /.local/
+/backend/.local/

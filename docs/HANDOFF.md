@@ -1,3 +1,38 @@
+## 21.11 (текущая сессия) — альфа-стенд #44 принят; поворот на деплой на VM пользователя
+
+- **#44 Альфа-стенд ПРИНЯТ Root.** Дефолты биллинга подняты (тестировщики не платят):
+  `BillingSettings` daily_free/user_daily/session_daily=100000 кредитов ($10),
+  user_monthly=1000000 ($100); глобальный USD-предохранитель $20/день, $300/мес
+  (защита реального баланса DeepSeek). credit_usd=0.0001/reserve=50/provider_alert=2
+  без изменений. Демо-авторизация оставлена для альфы (аккаунты тестовые). Новый
+  `.env.alpha.example` (ENVIRONMENT=dev обязательно для HTTP — иначе Secure cookie
+  ломает вход; DEMO_AUTH=true; FAKE_LLM=false) + README-раздел «Альфа-стенд» +
+  `.gitignore` `!.env.alpha.example`. `.env.example` биллинг-блок синхронизирован,
+  прод-флаги не тронуты. Гейты Root: ruff/mypy clean (130 files). Файлы:
+  backend/src/ai_dnd/billing/settings.py, .env.alpha.example, .env.example, README.md,
+  .gitignore, docs/PLAN.md.
+- **Поворот на VPS-деплой (отменяет «самостоятельное развёртывание» 19.11).**
+  Пользователь дал свою VM `root@201.34.159.217`, другой проект остановить, портал
+  развернуть позже когда готов. Доступ: SSH из WSL Ubuntu-24.04, пароль через
+  SSH_ASKPASS (ключи не авторизованы, sshpass нет). Временные askpass-скрипты с
+  паролем созданы в %TEMP% и УДАЛЕНЫ после работы; пароль в проекте/памяти не хранить.
+- **Другой проект на VM ОСТАНОВЛЕН:** `camp_to_city_game` (compose
+  `/root/camp_to_city_game`: core :8000, game1 :8001, game2 :8002, redis; тома
+  core-data/redis-data). `docker compose stop` → все Exited, порты 8000–8002 свободны,
+  restart=unless-stopped (не воскреснет после ребута), данные/образы целы. Системные
+  службы (docker/ssh/zabbix) не тронуты. Ресурсы VM: RAM 1.9 ГБ, диск 28 ГБ (24 свободно)
+  — ОГРАНИЧЕНИЕ: наш стек ~2.25 ГБ образ + embeddings CPU тесен в 1.9 ГБ RAM, при
+  деплое тюнить память/swap. Детали в PLAN.md «Деплой на VM пользователя».
+- **Осталось для альфа-деплоя:** решение по коммиту (HEAD f458c8e далеко позади дерева),
+  чистка каркаса после вывода run-стека, локальный подъём стенда + смок (секреты .env
+  заполняет пользователь; платный LLM — по разрешению), финальное ревью Astra, деплой
+  на VM (позже, с тюнингом под 1.9 ГБ RAM), тесты этапа 3 (#7) параллельно.
+- **Run-stack :5176 всё ещё поднят** (пользователь играет соло за Сокола, хост=Root):
+  backend :8033 PID 15192 (backend8.log, FAKE_LLM=false), worker (worker10.log),
+  vite :5176 PID 11416 (vite2.log). Docker postgres:5432+redis:6379 healthy, БД
+  ai_dnd_run, redis db14, сессия 6200e9c2 last_seq=39. Не мутировать/не рестартить
+  без разрешения. Коммитов НЕТ.
+
 ## 20.11 (текущая сессия) — #40 presence ЗАКРЫТ live; #51 минимальный фикс АКТИВИРОВАН live
 
 - **#40 присутствие NPC (ЗАКРЫТ, live PASS).** БД-авторитет `state.npc_locations` + `npc.home`
@@ -79,6 +114,19 @@
 - **Коммитов НЕТ.** Тесты отложены до работающего прототипа; долг: formal tests
   NpcDied/kill_npc/prompt-gate (в этапный тест-проход). Не мутировать живую БД и не
   рестартить стек без разрешения пользователя.
+- **Фикс CI ruff (задача #45, ПРИНЯТ Root 21.11).** CI падал на `ruff check`:
+  tracked scratch-драйверы `backend/.local/*.py` линтились (gitignore кроет только
+  корневой `/.local/`, не `backend/.local/`) + миграция alembic 0015 без trailing
+  newline (W292). Фикс: `extend-exclude = [".local"]` в `[tool.ruff]`
+  backend/pyproject.toml (scratch исключён из check+format; mypy уже игнорил через
+  files=["src","tests","alembic"]) + перенос строки в
+  backend/alembic/versions/20261120_1200_0015_user_ui_settings.py. uv.lock не тронут.
+  Гейты Root: ruff check exit 0, format --check 201 files ok, mypy 201 files ok.
+  **Scratch untrack выполнен 21.11 по команде пользователя:** `.gitignore` дополнен
+  `/backend/.local/`; `git rm -r --cached backend/.local` снял 5 драйверов с трекинга
+  (staged D, файлы на диске целы, check-ignore подтверждает). Коммит НЕ сделан
+  (отдельное решение пользователя). `extend-exclude=[".local"]` в ruff оставлен как
+  явный поясняющий фильтр (gitignore теперь и так исключает их из ruff).
 
 ## 20.11 — аудит размера промптов ведущего
 
