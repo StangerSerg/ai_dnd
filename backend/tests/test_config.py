@@ -1,7 +1,18 @@
+import os
+
 import pytest
 from pydantic import ValidationError
 
 from ai_dnd.config import Environment, Settings
+
+
+@pytest.fixture(autouse=True)
+def _clean_ai_dnd_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Убираем внешние переменные AI_DND_* (например, из CI), чтобы тесты были герметичны.
+    # monkeypatch восстанавливает значения после теста; setenv в тестах работает на чистом фоне.
+    for key in list(os.environ):
+        if key.startswith("AI_DND_"):
+            monkeypatch.delenv(key, raising=False)
 
 
 def make_settings() -> Settings:
