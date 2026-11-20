@@ -1,0 +1,84 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design tokens: "tabletop fantasy" dark theme (default), tuned to the Codex demo mood.
+ * A future light theme overrides these variables under :root:not(.dark).
+ */
+:root {
+  --radius: 0.25rem;
+
+  --background: #12130f;
+  --foreground: #eee5d0;
+  --card: #1d211c;
+  --card-foreground: #eee5d0;
+  --popover: #20251e;
+  --popover-foreground: #eee5d0;
+  --primary: #c8a56a;
+  --primary-foreground: #201c13;
+  --secondary: #2a2f26;
+  --secondary-foreground: #e7d8bd;
+  --muted: #262b23;
+  --muted-foreground: #b6aa93;
+  --accent: #36372a;
+  --accent-foreground: #f0e6cf;
+  --destructive: #9c4a33;
+  --destructive-foreground: #f6e8dd;
+  --border: rgba(195, 163, 109, 0.26);
+  --input: #595746;
+  --ring: #e2bf7e;
+
+  --gold: #c8a56a;
+  --parchment: #eee5d0;
+}
+
+@theme inline {
+  --font-sans: "Manrope", "Segoe UI", Arial, sans-serif;
+  --font-serif: "Cormorant Garamond", Georgia, serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-gold: var(--gold);
+  --color-parchment: var(--parchment);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  /* Native select popup (Windows) ignores Tailwind classes: force dark scheme + theme colors on options. */
+  select {
+    color-scheme: dark;
+  }
+  select option {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+  }
+}

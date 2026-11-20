@@ -22,6 +22,8 @@ from ai_dnd.rules.events import (
     DiceRolled,
     Event,
     Healed,
+    ProtectionEnded,
+    ProtectionStarted,
     ResourceChanged,
     Rested,
     RoundStarted,
@@ -45,7 +47,9 @@ def apply(state: GameState, event: Event) -> GameState:
             return _change_resource(state, event.actor_id, event.resource, event.delta)
         case ActorDied():
             actor = state.actor(event.actor_id)
-            return state.with_actor(actor.model_copy(update={"dead": True}))
+            state = state.with_actor(actor.model_copy(update={"dead": True}))
+            # Погибший больше никого не прикрывает.
+            return _drop_protection_by(state, event.actor_id)
         case ConditionApplied():
             actor = state.actor(event.actor_id)
             return state.with_actor(_add_condition(actor, event.condition, event.rounds))
@@ -65,7 +69,7 @@ def apply(state: GameState, event: Event) -> GameState:
                 current=event.order[0],
                 remaining=TurnBudget(action=0, bonus_action=0, movement=0),
             )
-            return _with_combat(state, combat)
+            return _drop_protection_by(_with_combat(state, combat), None)
         case RoundStarted():
             combat = _in_combat(state)
             return _with_combat(state, combat.model_copy(update={"round": event.round}))
@@ -83,8 +87,15 @@ def apply(state: GameState, event: Event) -> GameState:
             combat = _in_combat(state)
             fled = (*combat.fled, event.actor_id)
             return _with_combat(state, combat.model_copy(update={"fled": fled}))
+        case ProtectionStarted():
+            target = state.actor(event.target_id)
+            return state.with_actor(target.with_protector(event.protector_id))
+        case ProtectionEnded():
+            target = state.actor(event.target_id)
+            return state.with_actor(target.with_protector(None))
         case CombatEnded():
-            return _with_combat(state, None)
+            # Прикрытие живёт только внутри боя.
+            return _drop_protection_by(_with_combat(state, None), None)
         case DiceRolled() | CheckResolved() | ContestResolved() | AttackResolved() | Rested():
             # Эти события только сообщают о случившемся, состояние меняют другие.
             return state
@@ -151,3 +162,13 @@ def _in_combat(state: GameState) -> CombatState:
 
 def _with_combat(state: GameState, combat: CombatState | None) -> GameState:
     return state.model_copy(update={"combat": combat})
+
+
+def _drop_protection_by(state: GameState, protector_id: str | None) -> GameState:
+    """Снять прикрытие защитника; None — снять всё (начало или конец боя)."""
+    for actor in state.actors.values():
+        if actor.protected_by is not None and (
+            protector_id is None or actor.protected_by == protector_id
+        ):
+            state = state.with_actor(actor.with_protector(None))
+    return state

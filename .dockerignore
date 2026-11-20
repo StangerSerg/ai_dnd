@@ -1,0 +1,40 @@
+# Контекст сборки backend/Dockerfile — корень репозитория.
+# В образ попадают только backend/ (без тестов) и content/.
+.git
+.github
+.idea
+.local
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+.mypy_cache
+**/.mypy_cache
+.ruff_cache
+**/.ruff_cache
+.pytest_cache
+**/.pytest_cache
+*.log
+
+# Секреты никогда не должны попадать в образы.
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Не нужно для сборки бэкенда.
+frontend
+infra
+docs
+vibe_images
+content/.git
+backend/tests
+backend/.pytest_cache
+README.md
+AGENTS.md
+LICENSE
+.editorconfig
+.gitattributes
+.gitignore
+.pre-commit-config.yaml
+docker-compose.yml

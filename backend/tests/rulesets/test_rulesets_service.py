@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from ai_dnd.rules.dice import RollMode
 from ai_dnd.rules.ruleset import Difficulty, EffectTarget, RollVsTarget, Ruleset, RulesetError
 from ai_dnd.rulesets.service import find_compatibility_issues, load_ruleset
 from ai_dnd.sheets.compiled import CompiledTemplate
@@ -59,7 +60,7 @@ def test_builtin_combat_settings(srd5_ruleset: Ruleset) -> None:
 def test_builtin_conditions(srd5_ruleset: Ruleset) -> None:
     conditions = srd5_ruleset.conditions
 
-    assert len(conditions) == 14
+    assert len(conditions) == 15
     assert {key for key, condition in conditions.items() if condition.prevents_actions} == {
         "incapacitated",
         "paralyzed",
@@ -69,6 +70,11 @@ def test_builtin_conditions(srd5_ruleset: Ruleset) -> None:
     }
     poisoned = {effect.applies_to for effect in conditions["poisoned"].effects}
     assert poisoned == {EffectTarget.ATTACKS, EffectTarget.CHECKS}
+    hidden = {effect.applies_to: effect.mode for effect in conditions["hidden"].effects}
+    assert hidden == {
+        EffectTarget.ATTACKS: RollMode.ADVANTAGE,
+        EffectTarget.ATTACKS_AGAINST: RollMode.DISADVANTAGE,
+    }
 
 
 def test_builtin_resources_recover_on_a_long_rest(srd5_ruleset: Ruleset) -> None:

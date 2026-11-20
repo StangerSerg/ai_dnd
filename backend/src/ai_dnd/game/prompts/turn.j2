@@ -12,6 +12,13 @@ NPCs here:
 
 {% endfor %}
 {% endif %}
+{% if dead_npcs %}
+Dead here (corpses — NEVER describe as alive, speaking or acting):
+{% for npc in dead_npcs %}
+- {{ npc.name }} (id: {{ npc.id }}) — dead
+
+{% endfor %}
+{% endif %}
 {% if checks %}
 Prepared checks (use as scene_check):
 {% for check in checks %}
@@ -41,7 +48,7 @@ Exits:
 
 # Party status
 {% for member in party %}
-- {{ member.name }} (id: {{ member.id }}): HP {{ member.hp }}, AC {{ member.ac }}{% if member.conditions %}, conditions: {{ member.conditions }}{% endif %}{% if member.items %}, found items: {{ member.items }}{% endif %}
+- {{ member.name }} (id: {{ member.id }}): HP {{ member.hp }}, AC {{ member.ac }}{% if member.conditions %}, conditions: {{ member.conditions }}{% endif %}{% if member['items'] %}, found items: {{ member['items'] }}{% endif %}{% if member.skills %}, class skills: {{ member.skills }}{% endif %}{% if member.protected_by %}, protected by {{ member.protected_by }}{% endif %}
 
 {% endfor %}
 {% if revealed %}
@@ -58,11 +65,22 @@ Exits:
 - {{ fact }}
 {% endfor %}
 {% endif %}
+{% if fragments %}
 
-{% if opening %}
+# Relevant scenario fragments (search; may lie outside the current scene)
+{% for line in fragments %}
+{{ line }}
+{% endfor %}
+Background knowledge only: do not reveal DM-only fragments to players, and do not treat them as committed outcomes or invent rolls from them.
+{% endif %}
+
+{% if scene_update %}
+# State update after change_scene
+This is the current scene. It supersedes the previous scene snapshot for subsequent tool calls and narration. The players have not taken another action.
+{% elif opening %}
 # Session start
 Open the session: set the scene for the players using the read-aloud text and give them a reason to act.
-{% else %}
+{% elif actions %}
 # Players' actions
 {% for action in actions %}
 - {{ action.name }} (id: {{ action.actor_id }}): {{ action.text }}

@@ -21,28 +21,36 @@ from ai_dnd.game.content import GameContent
 from ai_dnd.game.events import (
     ActorsJoined,
     Attitude,
+    EncounterStarted,
     FactNoted,
     ItemGranted,
     JournalEvent,
     NpcAttitudeChanged,
+    NpcDied,
+    NpcMoved,
     Revealed,
     RevealedKind,
     SceneChanged,
 )
+from ai_dnd.game.presence import effective_location
 from ai_dnd.game.session import SessionSetup, SessionState, apply_events
+from ai_dnd.game.spells import CURE_WOUNDS_TOOL, FIRST_LEVEL_SLOT, SPELL_SLOT_PREFIX
 from ai_dnd.i18n import localize
 from ai_dnd.rules.actions import (
     Action,
     CheckAction,
     DamageAction,
     HealAction,
+    HideAction,
+    ProtectAction,
     ResourceAction,
     SaveAction,
     StartCombatAction,
 )
+from ai_dnd.rules.combat import allies_of, incapacitated_by
 from ai_dnd.rules.engine import RulesEngine
 from ai_dnd.rules.errors import RulesError
-from ai_dnd.rules.events import CheckResolved
+from ai_dnd.rules.events import CheckResolved, ConditionRemoved, DiceRolled, Healed
 from ai_dnd.rules.rng import Rng
 from ai_dnd.rules.ruleset import Difficulty
 from ai_dnd.rules.state import HIT_POINTS
@@ -122,6 +130,15 @@ class SetNpcAttitudeArgs(_Args):
     attitude: Attitude
 
 
+class MoveNpcArgs(_Args):
+    npc_id: str = Field(description="Id of the NPC who moves to another scene.")
+    scene_id: str = Field(description="Id of the scene the NPC moves to.")
+
+
+class KillNpcArgs(_Args):
+    npc_id: str = Field(description="Id of the NPC who dies.")
+
+
 class GrantItemArgs(_Args):
     actor_id: str = Field(description="Id of the character who gets the item.")
     item_id: str | None = Field(default=None, description="Id of a scenario item.")
@@ -132,15 +149,63 @@ class GrantItemArgs(_Args):
 
 class AdjustResourceArgs(_Args):
     actor_id: str
-    resource: str = Field(description="Resource id, e.g. hp, hit_dice, spell_slots_1.")
-    delta: int = Field(description="Negative to spend or deal damage, positive to restore.")
+    resource: str = Field(description="Resource id, e.g. hp for damage or gp.")
+    delta: int = Field(strict=True, description="Signed whole number. HP can only decrease.")
     reason: str = Field(description="Short reason, e.g. 'falling rocks'.")
+
+    def restriction(self) -> str | None:
+        if self.resource == HIT_POINTS and self.delta > 0:
+            return "healing_requires_supported_action"
+        if self.resource.startswith(SPELL_SLOT_PREFIX):
+            return "spell_slots_require_supported_action"
+        return None
+
+
+class CastCureWoundsArgs(_Args):
+    caster_id: str = Field(description="Party member casting Cure Wounds from the input.")
+    target_id: str = Field(description="Living party member to heal. A target at 0 HP is valid.")
+
+
+class ProtectArgs(_Args):
+    protector_id: str = Field(
+        description="Party member with the protect skill who covers an ally on their combat turn."
+    )
+    target_id: str | None = Field(
+        default=None,
+        description="Ally to cover. Omit (with target_name) to cover the most wounded living ally.",
+    )
+    target_name: str | None = Field(
+        default=None, description="Ally by name when the id is unknown."
+    )
+
+
+class StealthArgs(_Args):
+    actor_id: str = Field(description="Party member with the stealth skill who tries to hide.")
 
 
 class NoteFactArgs(_Args):
     text: str = Field(
         description="An important fact to remember: a promise, a deal, a name, a decision."
     )
+
+
+# Инструмент запроса (не effect): поиск по сценарию, исполняется ведущим асинхронно.
+LOOKUP_LORE_TOOL = "lookup_lore"
+
+
+class LookupLoreArgs(_Args):
+    query: str = Field(
+        description="What to look up in the scenario: a place, person, faction, object or lore "
+        "topic the current scene does not cover. Use the players' words or names."
+    )
+
+
+LOOKUP_LORE_SPEC = ToolSpec.from_model(
+    LOOKUP_LORE_TOOL,
+    "Search the scenario for background knowledge outside the current scene. Returns matching "
+    "fragments; it changes nothing in the world. Set continue_after=true, then decide the input.",
+    LookupLoreArgs,
+)
 
 
 # --- Инструменты ---
@@ -165,6 +230,18 @@ class DmTools:
         self._engine = engine
         self._rng = rng
         self._tools = {tool.name: tool for tool in _TOOLS}
+        # Политика прототипа: улика из on_success доступна только через успешную
+        # заготовленную проверку, даже если её можно было бы найти иным способом.
+        clue_ids = {clue.id for clue in content.scenario.clues}
+        self._check_gated_clues = {
+            entity_id
+            for scene in content.scenario.scenes
+            for check in scene.checks
+            for consequence in (check.on_success,)
+            if consequence is not None
+            for entity_id in consequence.reveal
+            if entity_id in clue_ids
+        }
 
     def specs(self) -> tuple[ToolSpec, ...]:
         return tuple(ToolSpec.from_model(tool.name, tool.description, tool.args) for tool in _TOOLS)
@@ -285,6 +362,8 @@ class DmTools:
             )
         if state.rules.combat is not None:
             raise ToolCallError("combat_already_started")
+        if encounter.id in state.started_encounters:
+            raise ToolCallError("encounter_already_started")
 
         creatures = encounter_actors(
             scenario, encounter.id, self._content.bestiaries, taken=state.rules.actors
@@ -298,6 +377,7 @@ class DmTools:
             sides={"party": party, "enemies": tuple(creature.id for creature in creatures)}
         )
         events: list[JournalEvent] = [
+            EncounterStarted(encounter_id=encounter.id),
             joined,
             *self._engine.resolve(after_join.rules, action, self._rng),
         ]
@@ -341,6 +421,17 @@ class DmTools:
             raise ToolCallError("unknown_entity")
         if state.is_revealed(args.entity_id):
             return ToolOutcome(result={"already_revealed": True})
+        if kind == "clue" and args.entity_id in self._check_gated_clues:
+            checks = [
+                check.id
+                for check in self._scene(state).checks
+                if check.on_success is not None and args.entity_id in check.on_success.reveal
+            ]
+            raise ToolCallError(
+                "clue_requires_prepared_check",
+                scene_checks=checks,
+                instruction="A successful matching prepared check reveals this clue automatically.",
+            )
         if self._setup.improvisation == "strict" and not self._in_scene(state, args.entity_id):
             raise ToolCallError("entity_not_in_scene")
         return ToolOutcome(
@@ -359,6 +450,43 @@ class DmTools:
             result={"npc": args.npc_id, "attitude": args.attitude},
         )
 
+    def move_npc(self, state: SessionState, args: MoveNpcArgs) -> ToolOutcome:
+        scenario = self._content.scenario
+        npc = next((item for item in scenario.npcs if item.id == args.npc_id), None)
+        if npc is None:
+            raise ToolCallError("unknown_npc", allowed=[item.id for item in scenario.npcs])
+        target = next((scene for scene in scenario.scenes if scene.id == args.scene_id), None)
+        if target is None:
+            raise ToolCallError("unknown_scene", allowed=[scene.id for scene in scenario.scenes])
+        previous = effective_location(npc, state)
+        if previous == target.id:
+            return ToolOutcome(
+                result={"npc": args.npc_id, "scene": target.id, "already_there": True}
+            )
+        return ToolOutcome(
+            events=[NpcMoved(npc_id=args.npc_id, scene_id=target.id, from_scene=previous)],
+            result={
+                "npc": args.npc_id,
+                "scene": target.id,
+                "from_scene": previous,
+                "instruction": (
+                    "The NPC is now present in that scene and absent from the previous one. "
+                    "Narrate their arrival or departure only where the players can see it."
+                ),
+            },
+        )
+
+    def kill_npc(self, state: SessionState, args: KillNpcArgs) -> ToolOutcome:
+        npc_ids = [npc.id for npc in self._content.scenario.npcs]
+        if args.npc_id not in npc_ids:
+            raise ToolCallError("unknown_npc", allowed=npc_ids)
+        if state.npc_status.get(args.npc_id) == "dead":
+            return ToolOutcome(result={"npc": args.npc_id, "already_dead": True})
+        return ToolOutcome(
+            events=[NpcDied(npc_id=args.npc_id)],
+            result={"npc": args.npc_id, "status": "dead"},
+        )
+
     def grant_item(self, state: SessionState, args: GrantItemArgs) -> ToolOutcome:
         actor = self._actor(state, args.actor_id, party_only=True)
         improvisation = self._setup.improvisation
@@ -369,6 +497,10 @@ class DmTools:
             )
             if item is None:
                 raise ToolCallError("unknown_item")
+            if any(
+                owned.item_id == item.id for items in state.inventory.values() for owned in items
+            ):
+                return ToolOutcome(result={"already_granted": item.id})
             if improvisation == "strict" and item.id not in self._scene(state).items:
                 raise ToolCallError("item_not_in_scene", allowed=list(self._scene(state).items))
             if not state.is_revealed(item.id):
@@ -385,6 +517,8 @@ class DmTools:
         return ToolOutcome(events=events, result={"granted": name, "to": actor})
 
     def adjust_resource(self, state: SessionState, args: AdjustResourceArgs) -> ToolOutcome:
+        if (restriction := args.restriction()) is not None:
+            raise ToolCallError(restriction)
         actor_id = self._actor(state, args.actor_id)
         actor = state.rules.actor(actor_id)
         if args.resource not in actor.resources:
@@ -393,12 +527,7 @@ class DmTools:
             raise ToolCallError("delta_is_zero")
         action: Action
         if args.resource == HIT_POINTS:
-            amount = str(abs(args.delta))
-            action = (
-                DamageAction(target_id=actor_id, damage=amount)
-                if args.delta < 0
-                else HealAction(target_id=actor_id, amount=amount)
-            )
+            action = DamageAction(target_id=actor_id, damage=str(-args.delta))
         else:
             action = ResourceAction(actor_id=actor_id, resource=args.resource, delta=args.delta)
         events, after = self._engine.run(state.rules, action, self._rng)
@@ -408,11 +537,123 @@ class DmTools:
             result={"resource": args.resource, "current": resource.current, "max": resource.max},
         )
 
+    def cast_cure_wounds(self, state: SessionState, args: CastCureWoundsArgs) -> ToolOutcome:
+        if state.rules.combat is not None:
+            raise ToolCallError("combat_casting_not_supported")
+        caster = state.rules.actor(self._actor(state, args.caster_id, party_only=True))
+        target = state.rules.actor(self._actor(state, args.target_id, party_only=True))
+        seat = self._setup.seat(caster.id)
+        capability = seat.cure_wounds if seat is not None else None
+        if capability is None or not capability.prepared:
+            raise ToolCallError("cure_wounds_not_prepared")
+        if (
+            caster.hp is None
+            or caster.hp.current == 0
+            or incapacitated_by(self._engine.ruleset, caster) is not None
+        ):
+            raise ToolCallError("caster_cannot_act")
+        if target.hp is None:
+            raise ToolCallError("target_has_no_hit_points")
+        slot = caster.resources.get(FIRST_LEVEL_SLOT)
+        if slot is None or slot.current < 1:
+            raise ToolCallError("no_first_level_spell_slot")
+
+        cost = ResourceAction(actor_id=caster.id, resource=FIRST_LEVEL_SLOT, delta=-1)
+        heal = HealAction(target_id=target.id, source_id=caster.id, amount=capability.healing_dice)
+        # Разрешаем оба действия на временном состоянии. Оркестратор фиксирует весь пакет.
+        spent, after_cost = self._engine.run(state.rules, cost, self._rng)
+        healing = self._engine.resolve(after_cost, heal, self._rng)
+        slots_remaining = after_cost.actor(caster.id).resources[FIRST_LEVEL_SLOT].current
+        rolled = next(event for event in healing if isinstance(event, DiceRolled))
+        healed = next(event for event in healing if isinstance(event, Healed))
+        return ToolOutcome(
+            events=[*spent, *healing],
+            result={
+                "spell": capability.spell_id,
+                "caster_id": caster.id,
+                "target_id": target.id,
+                "first_level_slots_remaining": slots_remaining,
+                "healing_roll": str(rolled.roll),
+                "healed": healed.amount,
+                "hp_after": healed.hp_after,
+                "removed_conditions": [
+                    event.condition for event in healing if isinstance(event, ConditionRemoved)
+                ],
+            },
+        )
+
     def note_fact(self, state: SessionState, args: NoteFactArgs) -> ToolOutcome:
         text = args.text.strip()
         if not text:
             raise ToolCallError("empty_fact")
         return ToolOutcome(events=[FactNoted(text=text[:MAX_FACT_LENGTH])], result={"noted": True})
+
+    # --- Скиллы классов ---
+
+    def protect(self, state: SessionState, args: ProtectArgs) -> ToolOutcome:
+        protector = state.rules.actor(self._actor(state, args.protector_id, party_only=True))
+        if "protect" not in protector.skills:
+            raise ToolCallError("skill_not_available", actor_id=protector.id, skill="protect")
+        if state.rules.combat is None:
+            raise ToolCallError(
+                "combat_required",
+                instruction=(
+                    "Protection is a combat action on the fighter's own turn. In combat the "
+                    "player picks it from the combat options; do not resolve it by narration."
+                ),
+            )
+        allies = allies_of(self._engine.ruleset, state.rules, protector.id)
+        target = None
+        if args.target_id is not None:
+            target = next((ally for ally in allies if ally.id == args.target_id), None)
+            if target is None:
+                raise ToolCallError("invalid_protect_target", allowed=[ally.id for ally in allies])
+        elif args.target_name:
+            name = args.target_name.strip().casefold()
+            target = next((ally for ally in allies if ally.name.casefold() == name), None)
+            if target is None:
+                raise ToolCallError(
+                    "invalid_protect_target", allowed=[ally.name for ally in allies]
+                )
+        else:
+            # Без явной цели — самый раненый живой союзник (наименьшие текущие хиты).
+            target = min(allies, key=lambda ally: ally.hp.current if ally.hp else 0, default=None)
+        if target is None:
+            raise ToolCallError("no_ally_to_protect")
+        action = ProtectAction(actor_id=protector.id, target_id=target.id)
+        events = self._engine.resolve(state.rules, action, self._rng)
+        return ToolOutcome(
+            events=list(events),
+            result={
+                "protector_id": protector.id,
+                "target_id": target.id,
+                "instruction": (
+                    "Narrate the shield cover as is: until the protector's next turn, attacks "
+                    "on the covered ally roll against the protector's AC and the protector "
+                    "takes the damage. Do not roll attacks or damage yourself."
+                ),
+            },
+        )
+
+    def stealth(self, state: SessionState, args: StealthArgs) -> ToolOutcome:
+        actor = state.rules.actor(self._actor(state, args.actor_id, party_only=True))
+        if "stealth" not in actor.skills:
+            raise ToolCallError("skill_not_available", actor_id=actor.id, skill="stealth")
+        action = HideAction(actor_id=actor.id)
+        events = self._engine.resolve(state.rules, action, self._rng)
+        return ToolOutcome(
+            events=list(events),
+            result={
+                "actor_id": actor.id,
+                "hidden": True,
+                "instruction": (
+                    "Narrate the hiding as is. While hidden: advantage on their own attack "
+                    "rolls, disadvantage on attacks against them, enemies do not target them. "
+                    "Hiding ends right after their own attack. In combat hiding costs the "
+                    "action and is chosen via the combat options."
+                ),
+            },
+        )
 
     # --- Внутреннее ---
 
@@ -509,7 +750,9 @@ _TOOLS: tuple[_Tool, ...] = (
     ),
     _Tool(
         "reveal",
-        "Mark a clue, handout, item or lore entry as discovered by the players.",
+        "Mark a clue, handout, item or lore entry as discovered by the players. "
+        "A clue gated by a prepared check is revealed automatically on success; "
+        "do not call reveal for it.",
         RevealArgs,
         DmTools.reveal,
     ),
@@ -520,6 +763,22 @@ _TOOLS: tuple[_Tool, ...] = (
         DmTools.set_npc_attitude,
     ),
     _Tool(
+        "move_npc",
+        "Move an NPC to another scene when they travel on their own or are escorted by the "
+        "party. NPC presence is authoritative: an NPC appears only in their recorded scene. "
+        "The party changing scene does NOT move NPCs — move escorted NPCs explicitly.",
+        MoveNpcArgs,
+        DmTools.move_npc,
+    ),
+    _Tool(
+        "kill_npc",
+        "Record that an NPC dies, in combat or in your narration. NPC death is "
+        "authoritative: a dead NPC is a corpse and must never be described as alive, "
+        "speaking or acting again.",
+        KillNpcArgs,
+        DmTools.kill_npc,
+    ),
+    _Tool(
         "grant_item",
         "Give an item to a character: a scenario item by id or, if allowed, a minor "
         "improvised item by name.",
@@ -528,15 +787,40 @@ _TOOLS: tuple[_Tool, ...] = (
     ),
     _Tool(
         "adjust_resource",
-        "Change a character's resource outside combat: damage from a trap or fall, "
-        "healing, a spent spell slot.",
+        "Change a character's resource outside combat, such as damage from a fall. "
+        "HP increases and spell slot changes require a supported typed action.",
         AdjustResourceArgs,
         DmTools.adjust_resource,
+    ),
+    _Tool(
+        CURE_WOUNDS_TOOL,
+        "Cast prepared first-level Cure Wounds outside combat. The engine spends one slot "
+        "and rolls healing in a single operation.",
+        CastCureWoundsArgs,
+        DmTools.cast_cure_wounds,
     ),
     _Tool(
         "note_fact",
         "Remember an important fact for later: a promise, a deal, a name, a decision.",
         NoteFactArgs,
         DmTools.note_fact,
+    ),
+    _Tool(
+        "protect",
+        "A fighter with the protect skill covers an ally on their combat turn instead of "
+        "attacking: attacks on the ally hit the protector's AC and the protector takes the "
+        "damage until their next turn. Without a target it covers the most wounded ally. "
+        "Combat only; in combat the player normally picks it from the combat options.",
+        ProtectArgs,
+        DmTools.protect,
+    ),
+    _Tool(
+        "stealth",
+        "A rogue with the stealth skill hides. Outside combat this sets the hidden state "
+        "(advantage on their own attacks, disadvantage on attacks against them, enemies do "
+        "not target them; ends when they attack). In combat hiding costs the action and is "
+        "chosen via the combat options.",
+        StealthArgs,
+        DmTools.stealth,
     ),
 )

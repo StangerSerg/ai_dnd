@@ -1,0 +1,266 @@
+/* Additions for the real player screen (3.4) on top of the shared demo.css.
+   Scoped under .game-screen so /demo stays untouched. */
+
+.game-screen .site-header { height: 76px; }
+.game-screen .header-actions .text-button { display: inline-flex; align-items: center; gap: 6px; }
+.game-screen .event-feed { display: flex; flex-direction: column; gap: 15px; overflow-anchor: none; }
+.game-screen .event-feed .action-entry { margin-top: 0; }
+
+/* Streaming narration caret */
+.game-screen .typing-caret { display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -2px; background: #d8bd8e; animation: caret-blink 1s steps(2, start) infinite; }
+@keyframes caret-blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .game-screen .typing-caret { animation: none; } }
+
+/* Quick actions */
+.game-screen .quick-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.game-screen .quick-actions .secondary-button { min-height: 36px; padding: 8px 12px; font-size: 10px; }
+.game-screen .action-input textarea:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Roll card */
+.game-screen .roll-card { display: grid; grid-template-columns: minmax(120px, 170px) minmax(0, 1fr); gap: 18px; align-items: center; border: 1px solid var(--line); background: radial-gradient(ellipse at 20% 60%, #393528, #20241e 60%); padding: 18px 22px; }
+.game-screen .roll-card-dice .dice-stage { max-width: 170px; }
+.game-screen .roll-card-info { min-width: 0; }
+.game-screen .roll-card-kicker { display: block; font-size: 9px; letter-spacing: .15em; color: #c9ad7e; }
+.game-screen .roll-card-info > strong { display: block; font: 600 20px var(--serif); margin-top: 5px; }
+.game-screen .roll-card-notation { font: 16px var(--serif); color: #d8c9ab; margin-top: 4px; }
+.game-screen .roll-card-notation em { color: #c4a16d; font-style: normal; }
+.game-screen .roll-card-total { font-size: 12px; color: #c8bca6; margin-top: 6px; }
+.game-screen .roll-card-total strong { color: #f6e2b5; font-size: 16px; }
+.game-screen .roll-card-terms { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; color: #b4a78e; margin-top: 6px; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .game-screen .roll-card { grid-template-columns: 1fr; } .game-screen .roll-card-dice { margin: auto; } }
+
+/* Click-to-roll (own live d20): the idle die is a real button, clearly
+   actionable — dashed gold frame, "?" face, no result until the click. */
+.game-screen .roll-card-pending { border-color: rgba(200, 165, 106, .55); background: radial-gradient(ellipse at 20% 60%, #423d2a, #23271f 60%); }
+.game-screen .roll-card-idle { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; padding: 12px 8px; border: 1px dashed rgba(200, 165, 106, .55); border-radius: 10px; background: transparent; color: #f2cf8e; cursor: pointer; transition: border-color .15s, background .15s; }
+.game-screen .roll-card-idle:hover { border-color: #c8a56a; background: rgba(200, 165, 106, .09); }
+.game-screen .roll-card-idle:focus-visible { outline: 2px solid #c8a56a; outline-offset: 2px; }
+.game-screen .roll-card-idle-die { display: block; width: min(100%, 120px); filter: drop-shadow(0 10px 8px #0008); }
+.game-screen .idle-die-hull { fill: #2c3126; stroke: #c8a56a; stroke-width: 2; stroke-linejoin: round; }
+.game-screen .idle-die-face { fill: #3a3f30; stroke: #c8a56a; stroke-width: 1.5; stroke-linejoin: round; }
+.game-screen .idle-die-edges { fill: none; stroke: rgba(200, 165, 106, .55); stroke-width: 1.2; }
+.game-screen .idle-die-mark { fill: #f2cf8e; font: 700 44px var(--serif); }
+.game-screen .roll-card-idle-label { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.game-screen .roll-card-pending-hint { margin-top: 6px; font: italic 14px/1.5 var(--serif); color: #d8c9ab; }
+@media (max-width: 600px) { .game-screen .roll-card-idle { max-width: 220px; margin: auto; } }
+@media (prefers-reduced-motion: reduce) { .game-screen .roll-card-idle { transition: none; } }
+
+/* 3D dice (3.5): one shared WebGL stage lives in the newest roll card; older
+   cards keep the static 2D illustration. The host keeps fixed dimensions even
+   while hidden (visibility, not display) so DiceBox can measure it on claim. */
+.game-screen .dice-3d-stage { max-width: 170px; margin: 0 auto; }
+.game-screen .dice-3d-host { width: 100%; max-width: 170px; aspect-ratio: 1 / 1; margin: 0 auto; }
+.game-screen .dice-3d-host[data-active='false'] { position: absolute; top: 0; left: 0; right: 0; visibility: hidden; pointer-events: none; }
+.game-screen .dice-3d-canvas { width: 100%; height: 100%; }
+.game-screen .dice-3d-canvas canvas { display: block; }
+/* While the lazy 3D chunk loads, the 2D preview shows the value without replaying the arrive animation. */
+.game-screen .dice-3d-loading .dice-illustration { animation: none; }
+.game-screen .less-animation-toggle[aria-pressed='true'] { color: #f2cf8e; }
+
+/* Stylized non-d20 dice (#21): per-sides polygon silhouettes reusing the donor
+   palette vars + dice-arrive tumble from demo.css. Multi-dice = a row of small
+   clone windows; a single die keeps the d20-sized stage. */
+.game-screen .dice-2d-group { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; }
+.game-screen .dice-2d-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; width: 100%; }
+.game-screen .dice-2d-row .dice-stage { width: 78px; max-width: 78px; }
+.game-screen .dice-2d-row .dice-stage:only-child { width: 100%; max-width: 170px; }
+.game-screen .dice-2d-row .dice-illustration { width: 100%; }
+.game-screen .dice-2d-edges { fill: none; stroke: var(--dice-edge); stroke-width: 1.2; stroke-opacity: .6; }
+.game-screen .dice-2d-value { font-size: 40px; }
+.game-screen .dice-2d-sides { fill: var(--dice-value, #1a1a16); font: 700 15px var(--serif); opacity: .7; }
+.game-screen .dice-3d-loading .dice-2d-illustration { animation: none; }
+@media (prefers-reduced-motion: reduce) { .game-screen .dice-2d-illustration { animation: none; } }
+
+/* Combat panel */
+.game-screen .combat-panel { border: 1px solid #8b5a3c; background: linear-gradient(140deg, #33261e, #241d18); padding: 20px 24px; margin-bottom: 22px; }
+.game-screen .combat-panel-heading { display: flex; align-items: center; gap: 10px; color: #e0a37e; }
+.game-screen .combat-panel-heading h2 { font: 600 24px var(--serif); color: #f0d9c4; }
+.game-screen .combat-round { margin-left: auto; font-size: 10px; letter-spacing: .12em; color: #d8a583; }
+.game-screen .combat-your-turn { font: italic 16px var(--serif); color: #f2cf8e; margin: 10px 0; }
+.game-screen .combat-waiting { font: 16px var(--serif); color: #d8c0ac; margin-top: 10px; }
+.game-screen .combat-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.game-screen .combat-empty { color: #b4a78e; font-size: 12px; }
+/* Скилл-опции (hide/protect): холодный оттенок отличает их от атак/конца хода. */
+.game-screen .combat-options .secondary-button { display: inline-flex; align-items: center; gap: 6px; }
+.game-screen .combat-options .combat-option-skill { border-color: #6f8fae; background: #1f2732; color: #cfe0ef; }
+.game-screen .combat-options .combat-option-skill:hover { background: #2a3644; }
+.game-screen .combat-panel .combat-quick-protect { display: inline-flex; align-items: center; gap: 7px; width: auto; min-height: 38px; padding: 8px 14px; margin: 4px 0 2px; }
+.game-screen .combat-covered-hint { display: flex; align-items: center; gap: 6px; font: italic 13px/1.5 var(--serif); color: #a9c4dc; margin-top: 8px; }
+
+/* Hero card extras */
+.game-screen .hero-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.game-screen .hero-actions .secondary-button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 8px 12px; font-size: 10px; }
+.game-screen .portrait-image { padding: 0; overflow: hidden; }
+.game-screen .portrait-image .avatar-image { width: 100%; height: 100%; font-size: 16px; }
+.game-screen .party-list > div > span:last-child { font-size: 11px; color: #d8c9ab; white-space: nowrap; }
+
+/* Avatar tiles (characters page: list cards + picker). The base .avatar-image
+   styles live in demo.css, which the characters page does not import — keep a
+   scoped copy under .avatar-tile so tiles render without the demo stylesheet. */
+.avatar-tile .avatar-image { display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; background: var(--muted, #3a4131); color: var(--muted-foreground, #c9ad7e); font-size: 20px; }
+.avatar-tile .avatar-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* Sheet view (template-driven, read-only) */
+.game-screen .sheet-view, .sheet-view { display: flex; flex-direction: column; gap: 22px; }
+.sheet-view .sheet-section h3 { font: 600 22px var(--font-serif, Georgia, serif); color: var(--gold, #c8a56a); border-bottom: 1px solid var(--border, rgba(195,163,109,.26)); padding-bottom: 6px; margin-bottom: 12px; }
+.sheet-view .sheet-grid { display: grid; gap: 10px 16px; }
+.sheet-view .sheet-field { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sheet-view .sheet-label { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-foreground, #b6aa93); overflow-wrap: anywhere; }
+.sheet-view .sheet-value { font-size: 14px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sheet-view .sheet-longtext { font-size: 12px; line-height: 1.6; color: var(--muted-foreground, #b6aa93); }
+.sheet-view .sheet-computed-mark { color: var(--gold, #c8a56a); font-style: normal; }
+.sheet-view .sheet-portrait { width: 96px; height: 96px; object-fit: cover; border: 1px solid var(--border, rgba(195,163,109,.26)); }
+.sheet-view .sheet-portrait-empty { display: grid; place-items: center; font-size: 34px; color: var(--gold, #c8a56a); background: var(--muted, #262b23); }
+.sheet-view .sheet-list { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sheet-view .sheet-list th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted-foreground, #b6aa93); border-bottom: 1px solid var(--border, rgba(195,163,109,.26)); padding: 4px 8px 4px 0; }
+.sheet-view .sheet-list td { padding: 5px 8px 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border, rgba(195,163,109,.26)) 50%, transparent); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .sheet-view .sheet-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
+
+/* Leader moderation (#26): seat controls, mute badge, kick dialog, kicked banner */
+.game-screen .party-list > div { flex-wrap: wrap; }
+.game-screen .party-list p { min-width: 0; }
+.game-screen .party-list .party-right { font-size: 11px; color: #d8c9ab; white-space: nowrap; }
+.game-screen .party-seat-muted .portrait { opacity: .55; filter: saturate(.35); }
+.game-screen .seat-muted-badge { display: inline-flex; align-items: center; gap: 5px; width: fit-content; margin-top: 5px; padding: 2px 9px; border: 1px solid rgba(214, 116, 88, .5); border-radius: 999px; background: rgba(120, 48, 32, .25); color: #e8a68c; font-size: 8px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.game-screen .party-controls { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.game-screen .moderation-button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid #8c7959; border-radius: 6px; background: #222920; color: #e7d8bd; transition: background .15s, border-color .15s, color .15s; }
+.game-screen .moderation-button:hover:not(:disabled) { background: #343b2d; border-color: #c8a56a; color: #f2cf8e; }
+.game-screen .moderation-button[aria-pressed="true"] { border-color: #b06a4a; background: #3a2a20; color: #e8a68c; }
+.game-screen .moderation-button[aria-pressed="true"]:hover:not(:disabled) { border-color: #d98d68; background: #46301f; color: #f2b48f; }
+.game-screen .moderation-danger:hover:not(:disabled) { border-color: #c25b4a; background: #3c241d; color: #f0a58f; }
+.game-screen .moderation-button:disabled { opacity: .45; cursor: not-allowed; }
+.game-screen .moderation-error, .kick-dialog .moderation-error { margin-top: 10px; padding: 9px 12px; border: 1px solid rgba(194, 91, 74, .55); border-radius: 6px; background: rgba(90, 34, 24, .3); color: #f0b3a0; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.kick-dialog { border-color: rgba(195, 163, 109, .4); }
+.kick-dialog .moderation-error { margin-top: 0; }
+.game-screen .kicked-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; padding: 18px 22px; border: 1px solid #a3543f; border-radius: 8px; background: linear-gradient(140deg, #3a231b, #241a15); box-shadow: 0 14px 34px rgba(0, 0, 0, .35); }
+.game-screen .kicked-banner strong { display: block; font: 600 22px var(--serif); color: #f2cf8e; }
+.game-screen .kicked-banner p { margin-top: 6px; color: #d8b9a4; font-size: 12px; line-height: 1.5; }
+.game-screen .kicked-banner .kicked-to-hall { display: inline-flex; align-items: center; width: auto; min-height: 42px; padding: 0 22px; text-decoration: none; white-space: nowrap; }
+@media (max-width: 480px) {
+  .game-screen .kicked-banner { flex-direction: column; align-items: stretch; }
+  .game-screen .kicked-banner .kicked-to-hall { justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) { .game-screen .moderation-button { transition: none; } }
+
+/* Chat out of game (#37): bubbles in the dark-fantasy language of the table */
+.game-screen .chat-panel { margin-top: 30px; border: 1px solid var(--line); border-radius: 10px; background: linear-gradient(150deg, #232821, #1a1f1a 60%, #171b17); box-shadow: 0 18px 40px #0003; padding: 18px 20px 16px; }
+.game-screen .chat-heading { display: flex; align-items: center; gap: 10px; color: #c9ad7e; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.game-screen .chat-heading h2 { font: 600 22px var(--serif); color: #eee5d0; }
+.game-screen .chat-heading-tag { margin-left: auto; font-size: 8px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: #a99a82; border: 1px solid rgba(195, 163, 109, .3); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.game-screen .chat-scroll { display: flex; flex-direction: column; gap: 10px; max-height: 320px; min-height: 120px; overflow-y: auto; overscroll-behavior: contain; padding: 14px 6px 14px 2px; scrollbar-width: thin; scrollbar-color: #8c7959 #171b17; }
+.game-screen .chat-scroll::-webkit-scrollbar { width: 8px; }
+.game-screen .chat-scroll::-webkit-scrollbar-track { background: #171b17; border-radius: 8px; }
+.game-screen .chat-scroll::-webkit-scrollbar-thumb { background: #6d5f47; border-radius: 8px; border: 1px solid #171b17; }
+.game-screen .chat-scroll::-webkit-scrollbar-thumb:hover { background: #c8a56a; }
+.game-screen .chat-scroll > *:first-child { margin-top: auto; }
+.game-screen .chat-load-older { align-self: center; border: 1px solid #8c7959; border-radius: 999px; background: #222920; color: #e7d8bd; padding: 6px 16px; font-size: 10px; letter-spacing: .08em; transition: background .15s, border-color .15s, color .15s; }
+.game-screen .chat-load-older:hover:not(:disabled) { background: #343b2d; border-color: #c8a56a; color: #f2cf8e; }
+.game-screen .chat-load-older:disabled { opacity: .5; cursor: not-allowed; }
+.game-screen .chat-loading, .game-screen .chat-empty { margin: auto; text-align: center; font: italic 15px/1.5 var(--serif); color: #b4a78e; padding: 18px 10px; max-width: 420px; }
+.game-screen .chat-message { align-self: flex-start; max-width: 82%; min-width: 0; border: 1px solid rgba(195, 163, 109, .22); border-radius: 12px 12px 12px 3px; background: #20271f; padding: 9px 13px 10px; }
+.game-screen .chat-message header { display: flex; align-items: baseline; gap: 10px; }
+.game-screen .chat-message header strong { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #c9ad7e; overflow-wrap: anywhere; }
+.game-screen .chat-message header time { margin-left: auto; font-size: 9px; color: #998f7d; white-space: nowrap; }
+.game-screen .chat-message p { margin-top: 5px; font: 15px/1.5 var(--serif); color: #e1d7c3; overflow-wrap: anywhere; white-space: pre-wrap; }
+.game-screen .chat-message-mine { align-self: flex-end; border-color: rgba(200, 165, 106, .5); border-radius: 12px 12px 3px 12px; background: linear-gradient(140deg, #3a3423, #2b2a1d); box-shadow: inset 0 0 0 1px rgba(242, 207, 142, .06); }
+.game-screen .chat-message-mine header strong { color: #f2cf8e; }
+.game-screen .chat-message-mine p { color: #f0e6cf; }
+.game-screen .chat-message-pending { opacity: .65; }
+.game-screen .chat-sending { display: block; margin-top: 4px; font-size: 9px; font-style: italic; color: #b4a78e; }
+.game-screen .chat-jump { align-self: center; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; border: 1px solid #c8a56a; border-radius: 999px; background: #3a3423; color: #f2cf8e; padding: 5px 14px; font-size: 10px; letter-spacing: .06em; transition: background .15s; }
+.game-screen .chat-jump:hover { background: #4a4229; }
+.game-screen .chat-error { margin-top: 10px; padding: 9px 12px; border: 1px solid rgba(194, 91, 74, .55); border-radius: 6px; background: rgba(90, 34, 24, .3); color: #f0b3a0; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.game-screen .chat-form { display: flex; align-items: stretch; gap: 0; margin-top: 12px; border: 1px solid #70624b; border-radius: 8px; background: #171d18; transition: border-color .15s; }
+.game-screen .chat-form:focus-within { border-color: #c8a56a; }
+.game-screen .chat-form textarea { width: 100%; min-width: 0; resize: none; border: 0; background: transparent; color: #f3e8d6; padding: 11px 13px; font: 15px/1.4 var(--serif); }
+.game-screen .chat-form textarea::placeholder { color: #a59b87; }
+.game-screen .chat-form textarea:focus-visible { outline: none; }
+.game-screen .chat-send { align-self: center; display: grid; place-items: center; flex: none; width: 40px; height: 40px; margin: 6px; border: 0; border-radius: 7px; background: linear-gradient(100deg, #b08a50, #dfc18a, #b38b52); color: #201c13; transition: filter .15s; }
+.game-screen .chat-send:hover:not(:disabled) { filter: brightness(1.12); }
+.game-screen .chat-send:disabled { opacity: .45; cursor: not-allowed; }
+.game-screen .chat-footer { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; color: #b4a78e; font-size: 9px; }
+.game-screen .chat-counter { color: #d3b881; letter-spacing: .1em; white-space: nowrap; }
+
+/* Downed banner (#37): cold moonlight over the unconscious hero */
+.game-screen .downed-banner { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; padding: 16px 20px; border: 1px solid #6a5a9e; border-radius: 10px; background: linear-gradient(140deg, #2a2438, #1c1a26); box-shadow: 0 14px 34px rgba(0, 0, 0, .35), inset 0 0 24px rgba(122, 100, 190, .08); }
+.game-screen .downed-banner-icon { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border: 1px solid rgba(154, 130, 220, .5); border-radius: 50%; background: rgba(70, 56, 110, .35); color: #c3aef0; animation: downed-pulse 2.6s ease-in-out infinite; }
+@keyframes downed-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(154, 130, 220, .25); } 50% { box-shadow: 0 0 16px 3px rgba(154, 130, 220, .35); } }
+.game-screen .downed-banner strong { display: block; font: 600 22px var(--serif); color: #d9c8f5; }
+.game-screen .downed-banner p { margin-top: 5px; color: #b7a8d6; font-size: 12px; line-height: 1.5; }
+.game-screen .seat-muted-badge-knockout { border-color: rgba(154, 130, 220, .55); background: rgba(70, 56, 110, .35); color: #c3aef0; }
+.game-screen .combat-downed-hint { font: italic 14px/1.5 var(--serif); color: #c3aef0; margin: 4px 0 8px; }
+@media (max-width: 480px) {
+  .game-screen .chat-panel { padding: 14px 12px 12px; }
+  .game-screen .chat-message { max-width: 92%; }
+  .game-screen .chat-heading h2 { font-size: 19px; }
+  .game-screen .chat-footer { flex-wrap: wrap; }
+  .game-screen .downed-banner { align-items: flex-start; gap: 12px; padding: 14px 16px; }
+  .game-screen .downed-banner strong { font-size: 19px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-screen .downed-banner-icon { animation: none; }
+  .game-screen .chat-load-older, .game-screen .chat-jump, .game-screen .chat-send, .game-screen .chat-form, .game-screen .leave-table-button { transition: none; }
+}
+
+/* Top-down layout: управление сверху, хвост повествования растёт вниз;
+   справа — персонаж, отряд, под ними чат. Только .game-screen: /demo не задет. */
+@media (min-width: 701px) {
+  .game-screen .game-layout { grid-template-columns: minmax(0, 1fr) 340px; gap: 40px; max-width: 1360px; padding: 40px 30px 80px; }
+}
+.game-screen .story-column .event-feed { margin-top: 28px; }
+.game-screen .party-column .chat-panel { margin-top: 26px; }
+.game-screen .chat-scroll { max-height: 420px; }
+
+/* Чат «новые сверху»: убираем нижний якорь demo-ленты (margin-top:auto у первого
+   элемента); пустое/загрузочное состояние по-прежнему центрируется. */
+.game-screen .chat-scroll > *:first-child { margin-top: 0; }
+.game-screen .chat-scroll > .chat-loading, .game-screen .chat-scroll > .chat-empty { margin: auto; }
+
+/* Заметная кнопка «Встать из-за стола»: тёплый акцент вместо plain text-button.
+   Класс переиспользуемый (позже — кнопка передачи ведущего у DM). */
+.game-screen .leave-table-button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 13px; border: 1px solid rgba(214, 116, 88, .65); border-radius: 6px; background: linear-gradient(140deg, rgba(120, 48, 32, .35), rgba(70, 32, 22, .3)); color: #f0c9a8; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; transition: background .15s, border-color .15s, color .15s; }
+.game-screen .leave-table-button:hover { border-color: #d98d68; background: linear-gradient(140deg, rgba(150, 62, 40, .45), rgba(90, 40, 26, .4)); color: #ffd9b8; }
+.game-screen .leave-table-button:focus-visible { outline: 2px solid #c8a56a; outline-offset: 2px; }
+
+/* Мобильная шапка: кнопки не должны вылезать за экран при узкой ширине. */
+@media (max-width: 700px) {
+  .game-screen .site-header { height: auto; min-height: 76px; flex-wrap: wrap; gap: 8px; padding-top: 10px; padding-bottom: 10px; }
+  .game-screen .header-actions { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  .game-screen .chat-scroll { max-height: 320px; }
+}
+
+/* Выход ведущего: выбор нового ведущего (radio-список) в диалоге host-leave.
+   Диалог порталится вне .game-screen — скоуп по классу .host-leave-dialog,
+   как у .kick-dialog. Стиль — тёмное фэнтези стола, золото/пергамент. */
+.host-leave-dialog .host-leave-targets { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 0; padding: 0; border: 0; min-width: 0; }
+.host-leave-dialog .host-leave-targets legend { padding: 0; margin-bottom: 8px; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #c9ad7e; }
+.host-leave-dialog .host-leave-target { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 12px; border: 1px solid rgba(195, 163, 109, .28); border-radius: 8px; background: #20271f; cursor: pointer; transition: border-color .15s, background .15s; }
+.host-leave-dialog .host-leave-target:hover { border-color: #c8a56a; background: #262e24; }
+.host-leave-dialog .host-leave-target:has(input:checked) { border-color: #c8a56a; background: linear-gradient(140deg, #3a3423, #2b2a1d); box-shadow: inset 0 0 0 1px rgba(242, 207, 142, .08); }
+.host-leave-dialog .host-leave-target input { flex: none; width: 15px; height: 15px; margin: 0; accent-color: #c8a56a; cursor: pointer; }
+.host-leave-dialog .host-leave-target input:focus-visible { outline: 2px solid #c8a56a; outline-offset: 2px; }
+.host-leave-dialog .host-leave-target input:disabled { cursor: not-allowed; opacity: .5; }
+.host-leave-dialog .host-leave-name { font: 15px/1.4 var(--serif); color: #e1d7c3; overflow-wrap: anywhere; }
+.host-leave-dialog .host-leave-tag { margin-left: auto; flex: none; padding: 2px 9px; border: 1px solid rgba(200, 165, 106, .5); border-radius: 999px; background: rgba(120, 96, 48, .25); color: #f2cf8e; font-size: 8px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .host-leave-dialog .host-leave-target { transition: none; } }
+
+/* Поражение отряда (TPK): финальный рассказ Ведущего (прокручиваемый) и подсказка
+   не-хосту. Диалог порталится вне .game-screen — скоуп по классу .defeat-dialog. */
+.defeat-dialog .defeat-final { max-height: 40vh; overflow-y: auto; margin: 0; padding: 12px 14px; border: 1px solid rgba(195, 163, 109, .28); border-radius: 8px; background: #20271f; }
+.defeat-dialog .defeat-final-label { display: block; margin-bottom: 6px; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #c9ad7e; }
+.defeat-dialog .defeat-final p { margin: 0; font: 15px/1.6 var(--serif); color: #e1d7c3; white-space: pre-wrap; overflow-wrap: anywhere; }
+.defeat-dialog .defeat-restart-hint { margin: 0; color: #b7a98f; font-size: 12px; line-height: 1.5; }
+
+/* Выбор стиля дайсов (профиль-настройки): живые d20-превью через DiceRenderer.
+   Палитры demo.css скоуплены под .codex-demo — контейнер несёт этот класс,
+   а его «оболочка» (фон/шрифт) сброшена, чтобы карточка профиля не менялась. */
+.dice-style-picker.codex-demo { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; background: transparent; color: inherit; font: inherit; }
+.dice-style-picker .dice-style-option { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px 8px; border: 1px solid rgba(195, 163, 109, .28); border-radius: 8px; background: #20271f; color: #e1d7c3; cursor: pointer; transition: border-color .15s, background .15s; }
+.dice-style-picker .dice-style-option:hover { border-color: #c8a56a; background: #262e24; }
+.dice-style-picker .dice-style-option[aria-checked='true'] { border-color: #c8a56a; background: linear-gradient(140deg, #3a3423, #2b2a1d); box-shadow: inset 0 0 0 1px rgba(242, 207, 142, .08); }
+.dice-style-picker .dice-style-option:focus-visible { outline: 2px solid #c8a56a; outline-offset: 2px; }
+.dice-style-picker .dice-style-name { font-size: 11px; letter-spacing: .06em; }
+.dice-style-picker .dice-stage { width: 100%; max-width: 84px; }
+.dice-style-picker .dice-illustration { width: 100%; animation: none; }
+@media (max-width: 480px) { .dice-style-picker.codex-demo { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) { .dice-style-picker .dice-style-option { transition: none; } }

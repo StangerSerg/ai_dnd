@@ -32,11 +32,14 @@ models:
 # thinking — размышления перед ответом: точнее, но дольше и дороже (у DeepSeek они
 # включены по умолчанию, поэтому выключаем явно там, где важна скорость).
 # Это стартовые значения: окончательный выбор — по замерам подэтапа 1.8.
+# После live-review температуры снижены для точности инструментов и боевых описаний;
+# семантическая корректность не гарантирована, окончательная оценка — в 1.8.
 tasks:
   # Текст для игроков: описания, реплики NPC.
-  narration: {model: deepseek-flash, thinking: false, max_tokens: 800, temperature: 1.0, timeout: 60}
+  narration: {model: deepseek-flash, thinking: false, max_tokens: 800, temperature: 0.3, timeout: 60}
   # Ход ведущего с инструментами: решить, нужна ли проверка, и вызвать её.
-  dm_tools: {model: deepseek-flash, thinking: false, max_tokens: 800, temperature: 0.7, timeout: 60}
+  # Pro выбран по адресным live-пробам 17.11; окончательная оценка — в 1.8.
+  dm_tools: {model: deepseek-v4-pro, thinking: false, max_tokens: 800, temperature: 0.2, timeout: 60}
   # Сводка «что было раньше».
   summary: {model: deepseek-flash, thinking: false, max_tokens: 700, temperature: 0.3, timeout: 60}
   # Действие ИИ-игрока.

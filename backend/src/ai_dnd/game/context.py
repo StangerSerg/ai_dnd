@@ -13,6 +13,7 @@
 Шаблоны промптов — на английском (раздел 18.3), тексты сценария — на языке игры.
 """
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cached_property
@@ -22,9 +23,14 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from ai_dnd.game.content import GameContent
+from ai_dnd.game.decision import TurnDecision
+from ai_dnd.game.presence import is_dead, is_present
 from ai_dnd.game.session import SessionSetup, SessionState
+from ai_dnd.game.spells import CURE_WOUNDS_TOOL, FIRST_LEVEL_SLOT
 from ai_dnd.i18n import localize
+from ai_dnd.rules.combat import incapacitated_by
 from ai_dnd.rules.ruleset import RollBands, RollVsTarget
+from ai_dnd.rules.state import HIDDEN, CombatState
 from ai_dnd.rulesets.glossary import translation_lines
 from ai_dnd.scenarios.schemas import Scene
 from ai_dnd.scenarios.service import resolve_statblock
@@ -39,6 +45,18 @@ _ENV = Environment(
 )
 
 LANGUAGE_NAMES = {"ru": "Russian", "en": "English"}
+
+# Ключи — канонические английские метки GameMaster._mandatory_outcomes (аудит зависит
+# от них); локализация эпитета происходит только при рендере чек-листа.
+_WOUND_EPITHETS = {
+    "ru": {
+        "devastating blow": "сокрушительный удар",
+        "heavy wound": "тяжёлое ранение",
+        "serious wound": "серьёзное ранение",
+        "light wound": "лёгкая рана",
+        "wound": "рана",
+    },
+}
 
 IMPROVISATION_RULES = {
     "strict": (
@@ -74,6 +92,9 @@ class ContextBuilder:
 
     @cached_property
     def system_prompt(self) -> str:
+        return self._render_system(include_style=True)
+
+    def _render_system(self, *, include_style: bool) -> str:
         ruleset = self._content.ruleset
         scenario = self._content.scenario
         language = self._language
@@ -82,27 +103,33 @@ class ContextBuilder:
             if language != "en"
             else []
         )
-        return _render(
-            "dm_system.j2",
-            language_name=LANGUAGE_NAMES.get(language, language),
-            improvisation_rules=IMPROVISATION_RULES[self._setup.improvisation],
-            ruleset_name=localize(ruleset.name, "en"),
-            resolution=_resolution(self._content),
-            difficulty=", ".join(
+        values: dict[str, Any] = {
+            "language_name": LANGUAGE_NAMES.get(language, language),
+            "improvisation_rules": IMPROVISATION_RULES[self._setup.improvisation],
+            "ruleset_name": localize(ruleset.name, "en"),
+            "resolution": _resolution(self._content),
+            "difficulty": ", ".join(
                 f"{level.value} {value}"
                 for level, value in sorted(ruleset.difficulty.items(), key=lambda item: item[1])
             ),
-            checks=_labels(ruleset.checks, language),
-            saves=_labels(ruleset.saves, language),
-            conditions=_labels(ruleset.conditions, language),
-            ruleset_summary=localize(ruleset.summary, language) if ruleset.summary else "",
-            glossary=glossary,
-            scenario=scenario.scenario,
-            scenes=scenario.scenes,
-            npcs=scenario.npcs,
-            seats=self._setup.seats,
-            style=_render(f"style_{language}.j2" if language in ("ru", "en") else "style_en.j2"),
-        )
+            "checks": _labels(ruleset.checks, language),
+            "saves": _labels(ruleset.saves, language),
+            "conditions": _labels(ruleset.conditions, language),
+            "ruleset_summary": localize(ruleset.summary, language) if ruleset.summary else "",
+            "glossary": glossary,
+            "scenario": scenario.scenario,
+            "scenes": scenario.scenes,
+            "npcs": scenario.npcs,
+            "seats": self._setup.seats,
+            "include_style": include_style,
+        }
+        # Планировщик отвечает только JSON: прозаический стиль ему не нужен и противоречил
+        # бы протоколу решения; рассказчик получает стиль целиком.
+        if include_style:
+            values["style"] = _render(
+                f"style_{language}.j2" if language in ("ru", "en") else "style_en.j2"
+            )
+        return _render("dm_system.j2", **values)
 
     # --- Слой 2: история ---
 
@@ -114,42 +141,346 @@ class ContextBuilder:
             f"- {action.name}: {action.text}" for action in actions
         )
 
+    def summary_entry(self, summary: str) -> str:
+        """Слой 4: сводка «что было раньше» перед дословной историей (раздел 9.3)."""
+        return "# Earlier in this session (recap of turns before the recent ones)\n" + summary
+
+    @cached_property
+    def decision_prompt(self) -> str:
+        schema = json.dumps(
+            TurnDecision.model_json_schema(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return (
+            self._render_system(include_style=False)
+            + "\n\n"
+            + _render("decision_system.j2", schema=schema, cure_wounds_tool=CURE_WOUNDS_TOOL)
+        )
+
+    def decision_message(
+        self,
+        state: SessionState,
+        actions: Sequence[tuple[int, ActionLine]],
+        completed: Sequence[dict[str, Any]],
+        *,
+        moved: bool,
+        problem: str = "",
+        fragments: Sequence[str] = (),
+    ) -> str:
+        # Действия рендерятся один раз — блоком с авторитетными индексами ниже;
+        # снимок сцены идёт без них, чтобы текст игрока не дублировался. Формат
+        # «input_index=N, actor_id=X: » сохранён: его разбирает FakeProvider.
+        snapshot = self.turn_message(state, (), fragments=fragments)
+        indexed = "\n".join(
+            f"- input_index={index}, actor_id={action.actor_id}: {action.name} — {action.text}"
+            for index, action in actions
+        )
+        ledger = json.dumps(completed, ensure_ascii=False, separators=(",", ":"))
+        prepared = []
+        for seat in self._setup.seats:
+            if seat.cure_wounds is None or not seat.cure_wounds.prepared:
+                continue
+            actor = state.rules.actor(seat.actor_id)
+            slot = actor.resources.get(FIRST_LEVEL_SLOT)
+            prepared.append(f"- {actor.id}: {slot.current if slot is not None else 0}")
+        casters = "\n".join(prepared) or "- none"
+        return (
+            f"{snapshot}\n\n# Unresolved original inputs (authoritative indices)\n{indexed}"
+            f"\n\n# Prepared Cure Wounds casters (actor id: first-level slots remaining)\n{casters}"
+            f"\n\n# Already committed operations and actual outcomes\n{ledger}"
+            f"\n\n# Movement already completed in this turn\n{moved}"
+            "\n\n# Encounters already started in this session (do not start again)\n"
+            + json.dumps(state.started_encounters, ensure_ascii=False, separators=(",", ":"))
+            + (
+                f"\n\n# Previous decision error; correct only unresolved inputs\n{problem}"
+                if problem
+                else ""
+            )
+        )
+
+    def narration_message(
+        self,
+        state: SessionState,
+        actions: Sequence[ActionLine],
+        completed: Sequence[dict[str, Any]],
+        *,
+        fragments: Sequence[str] = (),
+    ) -> str:
+        ledger = json.dumps(completed, ensure_ascii=False, separators=(",", ":"))
+        combat = state.rules.combat
+        roster = ""
+        if combat is not None:
+            lines = []
+            counts: dict[str, dict[str, int]] = {}
+            for actor_id in combat.order:
+                actor = state.rules.actors[actor_id]
+                side = combat.sides[actor_id]
+                condition = incapacitated_by(self._content.ruleset, actor)
+                status = (
+                    "dead"
+                    if actor.dead
+                    else "fled"
+                    if actor_id in combat.fled
+                    else "incapacitated"
+                    if condition is not None or (actor.hp is not None and actor.hp.current == 0)
+                    else "alive"
+                )
+                side_counts = counts.setdefault(
+                    side,
+                    {
+                        "total": 0,
+                        "present_alive": 0,
+                        "able_to_act": 0,
+                        "incapacitated": 0,
+                        "dead": 0,
+                        "fled": 0,
+                    },
+                )
+                side_counts["total"] += 1
+                side_counts["able_to_act" if status == "alive" else status] += 1
+                if status in ("alive", "incapacitated"):
+                    side_counts["present_alive"] += 1
+                lines.append(
+                    f"- {actor.name} (id: {actor_id}, side: {side}, "
+                    f"HP: {actor.hp.current if actor.hp else '—'}, status: {status})"
+                )
+            roster = (
+                "\n\n# Current combat roster and counts (authoritative)\n"
+                + "\n".join(lines)
+                + "\n"
+                + json.dumps(counts, ensure_ascii=False, separators=(",", ":"))
+                + "\nThe fight has begun; no attacks or damage are resolved by this narration."
+            )
+        return (
+            self.turn_message(state, actions, fragments=fragments)
+            + "\n\n# Committed events and actual tool outcomes (authoritative)\n"
+            + ledger
+            + roster
+            + "\n\n# Encounters already started in this session\n"
+            + json.dumps(state.started_encounters, ensure_ascii=False, separators=(",", ":"))
+            + "\n\nNarrate only the current scene and these committed outcomes. "
+            "Reflect every committed outcome that changed state: damage, healing, "
+            "death, a condition applied or removed, a resource spent; do not omit a "
+            "committed effect. "
+            "Do not describe a move, successful check, hit, reward, discovery, "
+            "healing, regained consciousness, death or flight unless the committed outcomes "
+            "show it. If requested healing has no committed outcome, say it was not resolved. "
+            "If no roll or effect happened, leave uncertain attempts unresolved. "
+            "You may answer players' questions from the public background fragments above "
+            "(known lore, not a new discovery); never reveal DM-only information."
+        )
+
     # --- Слой 3: текущий ход ---
 
     def turn_message(
-        self, state: SessionState, actions: Sequence[ActionLine], *, opening: bool = False
+        self,
+        state: SessionState,
+        actions: Sequence[ActionLine],
+        *,
+        opening: bool = False,
+        fragments: Sequence[str] = (),
     ) -> str:
         return _render(
             "turn.j2",
             **self._scene_view(state),
             opening=opening,
             actions=actions,
+            scene_update=False,
+            fragments=fragments,
         )
 
-    def combat_message(self, state: SessionState, log: Sequence[str], *, ended: bool) -> str:
+    def scene_update_message(self, state: SessionState) -> str:
+        """Full current scene for a change_scene tool result, without a new player turn."""
+        return _render(
+            "turn.j2",
+            **self._scene_view(state),
+            opening=False,
+            actions=(),
+            scene_update=True,
+        )
+
+    def combat_message(
+        self,
+        state: SessionState,
+        log: Sequence[str],
+        *,
+        roster: CombatState,
+        fled: set[str],
+        terminal_events: Sequence[str],
+        ended: bool,
+        defeated: bool = False,
+        mandatory: Sequence[str] = (),
+        misses: int = 0,
+    ) -> str:
+        scene = self._scene(state.scene_id)
+        location = f"{scene.title} (id: {scene.id})"
+        if scene.read_aloud:
+            location += (
+                "\nInitial setting/scenery only (current participants and combat log "
+                f"override any actors mentioned): {scene.read_aloud}"
+            )
         lines = "\n".join(f"- {line}" for line in log)
         party = "\n".join(f"- {member['name']}: HP {member['hp']}" for member in self._party(state))
-        enemies = "\n".join(
-            f"- {actor.name}: HP {actor.hp.current if actor.hp else '?'}"
-            f"{' (dead)' if actor.dead else ''}"
-            for actor in state.rules.actors.values()
-            if actor.id not in self._setup.party
-            and state.rules.combat is not None
-            and actor.id in state.rules.combat.sides
+        participants = []
+        counts: dict[str, dict[str, int]] = {}
+        for actor_id in roster.order:
+            actor = state.rules.actors[actor_id]
+            side = roster.sides[actor_id]
+            condition = incapacitated_by(self._content.ruleset, actor)
+            if actor.dead:
+                status = "dead"
+                category = "dead"
+            elif actor_id in fled:
+                status = "fled"
+                category = "fled"
+            elif condition is not None:
+                status = f"incapacitated ({condition})"
+                category = "incapacitated"
+            elif actor.hp is not None and actor.hp.current == 0:
+                status = "incapacitated (0 HP)"
+                category = "incapacitated"
+            else:
+                status = "alive"
+                category = "able_to_act"
+            side_counts = counts.setdefault(
+                side,
+                {
+                    "total": 0,
+                    "present_alive": 0,
+                    "able_to_act": 0,
+                    "incapacitated": 0,
+                    "dead": 0,
+                    "fled": 0,
+                },
+            )
+            side_counts["total"] += 1
+            side_counts[category] += 1
+            if category in ("able_to_act", "incapacitated"):
+                side_counts["present_alive"] += 1
+            participants.append(
+                f"- {actor.name} (id: {actor_id}, side: {side}): "
+                f"HP {actor.hp.current if actor.hp else '?'}, status: {status}"
+                + (", hidden" if actor.condition(HIDDEN) is not None else "")
+                + (f", protected by {actor.protected_by}" if actor.protected_by else "")
+            )
+        participants_text = "\n".join(participants)
+        counts_text = "\n".join(
+            f"- {side}: total={values['total']}, present_alive={values['present_alive']} "
+            f"(includes incapacitated), able_to_act={values['able_to_act']}, "
+            f"incapacitated={values['incapacitated']}, dead={values['dead']}, "
+            f"fled={values['fled']}"
+            for side, values in counts.items()
         )
-        ending = (
-            "\nThe fight is over. Describe the aftermath briefly and hand control back to "
-            "the players."
-            if ended
-            else ""
+        if ended and defeated:
+            ending = (
+                "\nThe party has been defeated: every hero is unconscious or dead. "
+                "This is the scenario's FAILURE outcome. Narrate a final closing scene "
+                "(two or three paragraphs) grounded ONLY in what the players have "
+                "actually experienced and learned in play: the current scene, the quest "
+                "the heroes undertook, the foes they faced, the people and places they "
+                "already know and tried to help, and the visible local consequences of "
+                "their failure — what befalls the fallen heroes here and now. "
+                "SECRECY: never reveal DM-only material. Do not name or describe "
+                "undiscovered NPCs, hidden plot twists, the secret scenario synopsis, "
+                "villains or factions the players have not met, or hidden locations and "
+                "artifacts they have not learned about. Do not spoil the mystery or "
+                "explain what the players never discovered. End on a conclusive final "
+                "phrase — a closing narration, NOT 'hand control back to the players' "
+                "and NOT a list of options. Do not invent a rescue, revival or reversal "
+                "unless the scenario itself provides one AND the players already know "
+                "of it. Keep the current scene and its terrain."
+            )
+        elif ended:
+            ending = (
+                "\nThe fight is over. Describe the aftermath briefly and hand control back to "
+                "the players."
+            )
+        else:
+            ending = ""
+        epithets = _WOUND_EPITHETS.get(self._language, {})
+        mandatory_text = (
+            "\n".join(
+                f"{i}. {_localize_epithets(item, epithets)}" for i, item in enumerate(mandatory, 1)
+            )
+            if mandatory
+            else "- none"
         )
+        mandatory_count = len(mandatory)
+        recap = ""
+        checklist_tail = ""
+        if mandatory:
+            if not ended:
+                recap = (
+                    "\n\nThis narration recaps the round that just ended; the fight is still "
+                    "active. Report every blow that landed, each with its wound epithet, "
+                    "in the numbered (initiative) order below, before any scene-setting, "
+                    "atmosphere or misses."
+                )
+            checklist_tail = (
+                recap
+                + "\n\n# Mandatory outcomes — final checklist (coverage contract)\n"
+                + f"Narrate all {mandatory_count} numbered items below, each individually "
+                "and in order. Flowing prose is the style; this checklist is the contract: "
+                "no item may be skipped, merged or replaced by a miss or a state "
+                "description.\n" + mandatory_text
+            )
         return (
+            f"# Current location (authoritative)\n{location}\n\n"
             "# Combat log since your last description\n"
             f"{lines}\n\n# Party\n{party}\n"
-            + (f"\n# Enemies\n{enemies}\n" if enemies else "")
-            + "\nDescribe these events vividly in one or two short paragraphs, as one "
-            "flowing scene. Do not add attacks, damage or outcomes that are not in the log."
-            + ending
+            f"\n# Combat status\n{'ended' if ended else 'active'}\n"
+            f"\n# Side counts (authoritative; total = present_alive + dead + fled)\n{counts_text}\n"
+            f"\n# Participants (authoritative current status)\n{participants_text}\n"
+            "\n# Terminal events in this log\n"
+            + (
+                "\n".join(f"- {event}" for event in terminal_events)
+                if terminal_events
+                else "- none"
+            )
+            + "\n\n# Mandatory outcomes (each MUST be narrated individually)\n"
+            + f"There are exactly {mandatory_count} mandatory outcomes below. Damage items "
+            "already carry the wound-severity epithet in the narration language.\n"
+            + mandatory_text
+            + f"\n\n# Misses in this log: {misses} (may be summarized in one phrase)\n"
+            "\nDescribe these events as one vivid, flowing artistic scene of two or "
+            "three paragraphs (more if needed). Write literary prose; NEVER a list or "
+            "a mechanical blow-by-blow enumeration. "
+            "The checklist is a coverage contract, the prose is the style: flowing prose "
+            "must still contain EVERY numbered beat — 'not a list' never means an item "
+            "may be skipped or merged.\n"
+            "Every death, loss of consciousness, damage dealt and heal in 'Mandatory "
+            "outcomes' MUST appear individually: who did what to whom, the wound severity, "
+            "and the result (wounded / downed unconscious / killed). Narrate each damage "
+            "item using the exact wound-severity epithet shown in its checklist item, "
+            "woven naturally into the prose (e.g. «волк вцепился в бок, оставив "
+            "серьёзное ранение»). "
+            "NEVER write a numeric count of wounds like «6 ран» / «six wounds», and "
+            "never state raw damage numbers — the epithet already encodes the "
+            "severity. Describe each damage event "
+            "separately, EVEN a minor wound. If multiple attacks hit the SAME character, "
+            "describe each hit separately — do not merge them into one phrase. A killing "
+            "blow / death must NEVER be skipped or replaced by a miss.\n"
+            "Misses and attacks that dealt no damage are NOT mandatory item by item: "
+            'collapse them into one short phrase (e.g. "ни один удар героев не достиг '
+            'цели" / "the heroes\' blows all fell short"). When the log is long, '
+            "compress all misses this way instead of describing each one.\n"
+            "Fidelity: a hit that dealt damage in the log must not be described as a "
+            "miss or deflection, and a miss must not be described as a hit. Do not "
+            "invent damage, deaths, unconsciousness or outcomes that are not in "
+            "'Mandatory outcomes'. Describe a death only for an actor marked DIED, "
+            "and unconsciousness only for an actor marked downed/unconscious there. "
+            "A wounded actor with remaining HP is still alive and fighting.\n"
+            "Take side counts and participant statuses from the authoritative blocks "
+            "above; do not invent additional dead, fled or present combatants. Only "
+            "describe flight, death or victory if this log has the corresponding "
+            "ActorFled, ActorDied or CombatEnded event. Keep this fight and its "
+            "participants in the current scene and its described terrain; do not move "
+            "them elsewhere or invent different terrain.\n"
+            f"FINAL CHECK before you finish: all {mandatory_count} numbered mandatory "
+            "outcomes must each appear in your scene — verify every numbered item, "
+            "including each separate hit and every death, is depicted." + checklist_tail + ending
         )
 
     # --- Внутреннее ---
@@ -167,7 +498,15 @@ class ContextBuilder:
                 "secrets": list(npc.secrets),
             }
             for npc in scenario.npcs
-            if npc.id in scene.npcs
+            # Присутствие детерминировано: scene.npcs — суперсет по фазам, локация
+            # (npc_locations поверх home) решает, кто действительно здесь.
+            # Мёртвые (npc_status) идут в dead_npcs — трупы, не живые NPC.
+            if is_present(npc, scene, state) and not is_dead(npc.id, state)
+        ]
+        dead_npcs = [
+            {"id": npc.id, "name": npc.name, "description": npc.description}
+            for npc in scenario.npcs
+            if is_present(npc, scene, state) and is_dead(npc.id, state)
         ]
         checks = [
             {
@@ -209,6 +548,7 @@ class ContextBuilder:
         return {
             "scene": scene,
             "npcs": npcs,
+            "dead_npcs": dead_npcs,
             "checks": checks,
             "entities": entities,
             "encounters": encounters,
@@ -230,6 +570,11 @@ class ContextBuilder:
                 for item in actor.conditions
             )
             items = ", ".join(item.name for item in state.inventory.get(seat.actor_id, ()))
+            protector = (
+                state.rules.actors[actor.protected_by].name
+                if actor.protected_by is not None and actor.protected_by in state.rules.actors
+                else None
+            )
             members.append(
                 {
                     "id": actor.id,
@@ -238,6 +583,8 @@ class ContextBuilder:
                     "ac": actor.ac if actor.ac is not None else "—",
                     "conditions": conditions + (" (dead)" if actor.dead else ""),
                     "items": items,
+                    "skills": ", ".join(actor.skills),
+                    "protected_by": protector,
                 }
             )
         return members
@@ -270,6 +617,13 @@ class ContextBuilder:
 
 def _render(template: str, **values: Any) -> str:
     return _ENV.get_template(template).render(**values).strip()
+
+
+def _localize_epithets(item: str, epithets: dict[str, str]) -> str:
+    # Замена только в слоте «: эпитет (последствие)», чтобы не задеть имена и '(wounded)'.
+    for english, native in epithets.items():
+        item = item.replace(f": {english} (", f": {native} (")
+    return item
 
 
 def _labels(group: dict[str, Any], language: str) -> str:

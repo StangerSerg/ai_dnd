@@ -16,6 +16,9 @@ from ai_dnd.rules.ruleset import TurnBudget
 # Ресурс с этим id — хиты: по нему работают урон, лечение и правило «0 хитов».
 HIT_POINTS = "hp"
 
+# Состояние «спрятался»: его эффекты задаёт набор правил, а снимает своя атака.
+HIDDEN = "hidden"
+
 # Из чего состоит ход в бою.
 TurnSlot = Literal["action", "bonus_action", "movement"]
 
@@ -77,6 +80,11 @@ class Actor(_Frozen):
     tactics: Tactics | None = None
     resources: dict[str, Resource] = Field(default_factory=dict)
     attacks: dict[str, AttackProfile] = Field(default_factory=dict)
+    # Id скиллов класса из реестра контента: по ним движок выдаёт боевые опции
+    # (stealth → HideAction, protect → ProtectAction).
+    skills: tuple[str, ...] = ()
+    # Кто прикрывает этого участника (ProtectAction): атаки по нему принимает защитник.
+    protected_by: str | None = None
     # Типы урона. Кортежи, а не множества: порядок в сохранённом состоянии должен быть
     # одним и тем же.
     resistances: tuple[str, ...] = ()
@@ -101,6 +109,9 @@ class Actor(_Frozen):
 
     def with_conditions(self, conditions: tuple[ActiveCondition, ...]) -> "Actor":
         return self.model_copy(update={"conditions": conditions})
+
+    def with_protector(self, protector_id: str | None) -> "Actor":
+        return self.model_copy(update={"protected_by": protector_id})
 
 
 class CombatState(_Frozen):

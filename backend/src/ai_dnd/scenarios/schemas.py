@@ -145,6 +145,9 @@ class Npc(_Model):
     # Только для ведущего.
     secrets: tuple[_Text, ...] = ()
     attitude: Literal["friendly", "neutral", "hostile"] = "neutral"
+    # Стартовая сцена NPC: где он живёт, пока ведущий не переместил его (move_npc).
+    # Без home присутствие определяется только списком npcs сцены (старое поведение).
+    home: EntityId | None = None
     statblock: StatblockRef | None = None
 
 

@@ -12,6 +12,7 @@ from ai_dnd.game.events import (
     JournalEvent,
     Narrated,
     NpcAttitudeChanged,
+    PartyDefeated,
     PlayerActed,
     Revealed,
     SceneChanged,
@@ -32,6 +33,8 @@ from ai_dnd.rules.events import (
     DamageDealt,
     DiceRolled,
     Healed,
+    ProtectionEnded,
+    ProtectionStarted,
     ResourceChanged,
     Rested,
     RoundStarted,
@@ -54,11 +57,15 @@ _TEXTS: dict[str, dict[str, str]] = {
         "resource": "{actor}: {resource} {delta:+d} → {current}",
         "condition_on": "{actor}: {condition}",
         "condition_off": "{actor} больше не {condition}",
+        "protect": "{protector} прикрывает {target}: удары по нему принимает защитник",
+        "protect_off": "Прикрытие спало: {target} больше не защищён ({protector})",
+        "intercept": " — удар принимает {protector}",
         "combat": "Бой! Порядок ходов: {order}",
         "round": "— Раунд {round} —",
         "turn": "Ход: {actor}",
         "combat_won": "Бой окончен: {side} на ногах",
         "combat_stopped": "Бой прекращён",
+        "defeat": "☠ Отряд пал — поражение",
         "party": "отряд",
         "enemies": "противники",
         "time": "Проходит время: {rounds} раунд(ов)",
@@ -93,11 +100,15 @@ _TEXTS: dict[str, dict[str, str]] = {
         "resource": "{actor}: {resource} {delta:+d} → {current}",
         "condition_on": "{actor} is {condition}",
         "condition_off": "{actor} is no longer {condition}",
+        "protect": "{protector} protects {target}: the protector takes attacks aimed at them",
+        "protect_off": "Protection ends: {target} is no longer covered by {protector}",
+        "intercept": " — intercepted by {protector}",
         "combat": "Combat! Turn order: {order}",
         "round": "— Round {round} —",
         "turn": "Turn: {actor}",
         "combat_won": "The fight is over: the {side} stand",
         "combat_stopped": "The fight stops",
+        "defeat": "☠ The party has fallen — defeat",
         "party": "party",
         "enemies": "enemies",
         "time": "Time passes: {rounds} round(s)",
@@ -188,9 +199,14 @@ class EventRenderer:
                     verdict = t["hit"]
                 else:
                     verdict = t["miss"]
+                intercept = (
+                    t["intercept"].format(protector=name(event.redirected_to_id))
+                    if event.redirected_to_id is not None
+                    else ""
+                )
                 return (
                     f"⚔ {name(event.attacker_id)} → {name(event.target_id)} ({event.attack_name}): "
-                    f"{event.total} {t['vs_ac']} {event.target_ac} — {verdict}"
+                    f"{event.total} {t['vs_ac']} {event.target_ac} — {verdict}{intercept}"
                 )
             case DamageDealt():
                 kind = f" ({self._damage_label(event.damage_type)})" if event.damage_type else ""
@@ -220,6 +236,14 @@ class EventRenderer:
                 return t["condition_off"].format(
                     actor=name(event.actor_id), condition=self._condition_label(event.condition)
                 )
+            case ProtectionStarted():
+                return "🛡 " + t["protect"].format(
+                    protector=name(event.protector_id), target=name(event.target_id)
+                )
+            case ProtectionEnded():
+                return t["protect_off"].format(
+                    protector=name(event.protector_id), target=name(event.target_id)
+                )
             case CombatStarted():
                 return "⚔ " + t["combat"].format(order=", ".join(name(a) for a in event.order))
             case RoundStarted():
@@ -248,6 +272,8 @@ class EventRenderer:
                 return t["joined"].format(names=", ".join(actor.name for actor in event.actors))
             case FactNoted():
                 return t["fact"].format(text=event.text)
+            case PartyDefeated():
+                return t["defeat"]
             case PlayerActed() | Narrated():
                 return None
             case _:
@@ -316,6 +342,9 @@ class ModelLogRenderer(EventRenderer):
     def line(self, event: JournalEvent, state: SessionState) -> str | None:
         if isinstance(event, DiceRolled):
             # Броски модели не нужны: итог есть в следующем событии.
+            return None
+        if isinstance(event, PartyDefeated):
+            # Финал поражения модель уже рассказала в Narrated; маркер — только игрокам.
             return None
         return super().line(event, state)
 

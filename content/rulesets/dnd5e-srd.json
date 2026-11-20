@@ -72,6 +72,7 @@
     "deafened": {"label": {"ru": "Оглох", "en": "Deafened"}},
     "frightened": {"label": {"ru": "Испуган", "en": "Frightened"}, "effects": [{"applies_to": "checks", "mode": "disadvantage"}, {"applies_to": "attacks", "mode": "disadvantage"}]},
     "grappled": {"label": {"ru": "Схвачен", "en": "Grappled"}},
+    "hidden": {"label": {"ru": "Скрыт", "en": "Hidden"}, "effects": [{"applies_to": "attacks", "mode": "advantage"}, {"applies_to": "attacks_against", "mode": "disadvantage"}]},
     "incapacitated": {"label": {"ru": "Недееспособен", "en": "Incapacitated"}, "prevents_actions": true},
     "invisible": {"label": {"ru": "Невидим", "en": "Invisible"}, "effects": [{"applies_to": "attacks", "mode": "advantage"}, {"applies_to": "attacks_against", "mode": "disadvantage"}]},
     "paralyzed": {"label": {"ru": "Парализован", "en": "Paralyzed"}, "effects": [{"applies_to": "saves", "only": ["str", "dex"], "auto_fail": true}, {"applies_to": "attacks_against", "mode": "advantage"}], "prevents_actions": true},

@@ -54,14 +54,25 @@ class DbJournal:
         sessions: async_sessionmaker[AsyncSession],
         setup: SessionSetup,
         state: SessionState,
+        *,
+        scenario_version_id: uuid.UUID | None = None,
+        ruleset_id: uuid.UUID | None = None,
+        sheet_template_id: uuid.UUID | None = None,
     ) -> "DbJournal":
-        """Новая сессия в ``game_sessions`` с начальным снимком состояния."""
+        """Новая сессия в ``game_sessions`` с начальным снимком состояния.
+
+        Ссылки на версию сценария, правила и шаблон пиннят игру к неизменяемой версии
+        (подэтап 2.1); в YAML/memory-режиме остаются None.
+        """
         row = GameSessionRow(
             id=uuid.uuid4(),
             scenario=setup.scenario,
             language=setup.language,
             setup=setup.model_dump(mode="json"),
             state=state.model_dump(mode="json"),
+            scenario_version_id=scenario_version_id,
+            ruleset_id=ruleset_id,
+            sheet_template_id=sheet_template_id,
         )
         async with sessions() as session, session.begin():
             session.add(row)

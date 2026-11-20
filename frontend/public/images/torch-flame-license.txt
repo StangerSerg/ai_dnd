@@ -1,0 +1,11 @@
+Asset: torch-flame-loop.webm
+Title: Vertical video of the tip of the flame flowing upwards
+SourceURL: https://mixkit.co/free-stock-video/vertical-video-of-the-tip-of-the-flame-flowing-upwards-52296/
+License: Mixkit Stock Video Free License
+LicenseURL: https://mixkit.co/license/#videoFree
+Prepared: 19.11.2026
+
+Changes: extracted 8.0-15.5s from source 52296; scaled/reframed to 256x384; softened spatial edges, narrowed and stabilized the lower flame around the center; shifted green highlights toward yellow/amber; made a 6.75s forward loop with a 0.75s end/start crossfade; encoded VP9 WebM at the original 24fps, without audio. No slow motion or ping-pong.
+
+Commercial website use and modifications are permitted. Attribution is not required. Do not resell this asset as a standalone item or redistribute it as stock footage.
+This notice covers the flame video only, not the castle-gate background.

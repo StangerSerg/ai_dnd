@@ -1,0 +1,428 @@
+/* Task #32B: the "Hall of Stories" (/games). Additive styles only.
+   Everything is scoped under .codex-demo.hall-page so /demo and the rest of
+   the app are never touched. demo.css is imported but never edited.
+
+   Palette derived from the hall itself: a dominant amber/gold family carrying
+   the largest fields, ember-red, moss-green, teal and amethyst accents for the
+   candle flames and semantic states, plus warm/cool neutrals separating
+   background, surface, overlay and scrim. */
+
+.codex-demo.hall-page {
+  --hall-bg: #111511;
+  --hall-surface: #1d211c;
+  --hall-overlay: #232821;
+  --hall-gold: #c8a56a;
+  --hall-gold-bright: #e2bf7e;
+  --hall-pale: #eee5d0;
+  --hall-muted: #b6aa93;
+  --hall-line: rgba(195, 163, 109, .26);
+  --hall-ember: #de7c5c;
+  --hall-moss: #9ec48a;
+  --hall-teal: #5fb3a5;
+  --hall-amethyst: #a98bd0;
+  --hall-scrim: rgba(8, 10, 8, .72);
+  --hall-serif: 'Cormorant Garamond', Georgia, serif;
+}
+
+/* The global AppHeader sits above the scene; fill the remaining viewport and
+   let lifted tables / tall detail panels breathe instead of clipping. */
+.codex-demo.hall-page .hall.scene {
+  min-height: calc(100vh - 64px);
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Heading + primary actions ---------------------------------------- */
+.codex-demo.hall-page .hall-heading { margin: 46px auto 18px; }
+.codex-demo.hall-page .hall-heading h1 { font-size: clamp(38px, 4vw, 60px); }
+.codex-demo.hall-page .hall-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 24px;
+}
+/* Create / Join triggers keep the app theme but read as hall controls. */
+.codex-demo.hall-page .hall-actions [data-slot="button"] {
+  min-height: 44px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 2px;
+}
+
+/* ---- Floor + tables ---------------------------------------------------- */
+.codex-demo.hall-page .hall-layout {
+  width: min(1200px, 92%);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0;
+  flex: 1;
+}
+.codex-demo.hall-page .hall-floor { padding: 24px 0 10px; min-width: 0; }
+.codex-demo.hall-page .hall-carousel { min-width: 0; }
+.codex-demo.hall-page .hall-carousel-nav {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 14px 0 2px;
+}
+.codex-demo.hall-page .hall-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: #303629;
+  border: 1px solid #786b51;
+  color: #e8d7b7;
+  border-radius: 2px;
+  transition: background .15s, border-color .15s;
+}
+.codex-demo.hall-page .hall-arrow svg { width: 18px; height: 18px; }
+.codex-demo.hall-page .hall-arrow:hover:not(:disabled) { background: #3d4533; border-color: var(--hall-gold); }
+.codex-demo.hall-page .hall-arrow:disabled { opacity: .35; cursor: not-allowed; }
+.codex-demo.hall-page .table-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 20px;
+  min-height: 300px;
+  max-width: 100%;
+  padding: 26px 4px 34px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  perspective: 900px;
+}
+.codex-demo.hall-page .table-choice {
+  flex: 0 0 calc((100% - 40px) / 3);
+  width: auto;
+  min-width: 0;
+  height: 260px;
+  scroll-snap-align: start;
+  animation: hall-rise .6s cubic-bezier(.2, .7, .2, 1) both;
+}
+.codex-demo.hall-page .table-name {
+  top: 72%;
+  padding: 0 8px;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* Per-table candle flame borrows a distinct palette hue. */
+.codex-demo.hall-page .table-candle {
+  color: #ffe6a8;
+  text-shadow: 0 0 14px var(--table-flame, #f7a739), 0 0 30px var(--table-flame, #f7a739);
+  animation: hall-flicker 3.4s ease-in-out infinite;
+}
+.codex-demo.hall-page .table-choice.is-active .table-top {
+  box-shadow: 0 9px 0 #1c140e, 0 16px 22px #000c, inset 0 0 0 2px var(--hall-gold-bright), 0 0 34px -6px var(--table-flame, #f7a739);
+}
+.codex-demo.hall-page .table-choice.is-active .table-name { color: #f6e7c4; }
+
+/* Corner ribbons: who the table belongs to + live seat count. */
+.codex-demo.hall-page .hall-table-flag,
+.codex-demo.hall-page .hall-table-seats {
+  position: absolute;
+  top: 0;
+  z-index: 3;
+  font: 700 8px/1 'Manrope', sans-serif;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  padding: 5px 8px;
+  border: 1px solid var(--hall-line);
+  background: rgba(17, 21, 17, .82);
+  color: var(--hall-muted);
+  white-space: nowrap;
+}
+.codex-demo.hall-page .hall-table-flag { left: 0; border-radius: 2px 0 0 2px; }
+.codex-demo.hall-page .hall-table-flag[data-kind="leader"] { color: #f0d9a8; border-color: rgba(226, 191, 126, .6); }
+.codex-demo.hall-page .hall-table-flag[data-kind="mine"] { color: var(--hall-moss); border-color: rgba(158, 196, 138, .5); }
+.codex-demo.hall-page .hall-table-flag[data-kind="open"] { color: var(--hall-teal); border-color: rgba(95, 179, 165, .5); }
+.codex-demo.hall-page .hall-table-seats {
+  right: 0;
+  border-radius: 0 2px 2px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--hall-pale);
+}
+.codex-demo.hall-page .hall-seat-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--hall-moss);
+  box-shadow: 0 0 8px var(--hall-moss);
+}
+
+/* ---- Detail panel (opens under the carousel row) ----------------------- */
+.codex-demo.hall-page .table-details { padding: 26px 28px; min-width: 0; }
+.codex-demo.hall-page .hall-floor .table-details { max-width: 620px; margin: 6px auto 0; }
+.codex-demo.hall-page .hall-seat-embed { margin-top: 16px; text-align: left; }
+.codex-demo.hall-page .hall-seat-embed .hall-seat-body { color: var(--hall-pale); }
+.codex-demo.hall-page .table-details h2 { overflow-wrap: anywhere; }
+.codex-demo.hall-page .detail-description { min-height: 0; }
+/* Flavour copy closes the panel; the CTA and leader controls stay above the fold. */
+.codex-demo.hall-page .table-details .detail-symbol { margin: 10px 0 4px; font-size: 20px; }
+.codex-demo.hall-page .table-details h2 { margin: 6px 0 10px; font-size: 30px; }
+.codex-demo.hall-page .table-details .detail-meta { margin-top: 12px; padding: 12px 0; }
+.codex-demo.hall-page .table-details .detail-mood { margin: 12px 0; }
+.codex-demo.hall-page .table-details .detail-description {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hall-line);
+}
+.codex-demo.hall-page .hall-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: center;
+  margin: 4px 0 2px;
+}
+.codex-demo.hall-page .hall-badge {
+  font: 700 8px/1 'Manrope', sans-serif;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  padding: 6px 9px;
+  border: 1px solid rgba(226, 191, 126, .5);
+  color: #f0d9a8;
+  background: rgba(58, 52, 34, .5);
+  border-radius: 2px;
+}
+.codex-demo.hall-page .hall-badge-alt { border-color: rgba(158, 196, 138, .45); color: var(--hall-moss); background: rgba(40, 54, 36, .5); }
+.codex-demo.hall-page .hall-badge-line { border-color: rgba(95, 179, 165, .45); color: var(--hall-teal); background: rgba(28, 48, 46, .5); }
+.codex-demo.hall-page .hall-badge-mine { border-color: rgba(169, 139, 208, .5); color: var(--hall-amethyst); background: rgba(46, 38, 58, .5); }
+
+/* ---- Leader recruiting control ---------------------------------------- */
+.codex-demo.hall-page .hall-recruiting {
+  border-top: 1px solid var(--hall-line);
+  margin-top: 18px;
+  padding-top: 16px;
+  text-align: left;
+}
+.codex-demo.hall-page .hall-recruiting-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.codex-demo.hall-page .hall-recruiting-kicker {
+  font: 700 9px/1 'Manrope', sans-serif;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #d9c7a8;
+}
+.codex-demo.hall-page .hall-recruiting-state {
+  font: 700 8px/1 'Manrope', sans-serif;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 5px 8px;
+  border-radius: 2px;
+  border: 1px solid;
+}
+.codex-demo.hall-page .hall-recruiting-state.is-open { color: var(--hall-moss); border-color: rgba(158, 196, 138, .5); background: rgba(40, 54, 36, .5); }
+.codex-demo.hall-page .hall-recruiting-state.is-closed { color: var(--hall-ember); border-color: rgba(222, 124, 92, .5); background: rgba(60, 34, 26, .5); }
+
+.codex-demo.hall-page .hall-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  color: var(--hall-pale);
+}
+.codex-demo.hall-page .hall-switch:disabled { opacity: .6; cursor: progress; }
+.codex-demo.hall-page .hall-switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid #6a5f47;
+  background: #161d17;
+  transition: background .2s, border-color .2s;
+}
+.codex-demo.hall-page .hall-switch-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #8c7959;
+  transition: transform .2s, background .2s;
+}
+.codex-demo.hall-page .hall-switch.is-on .hall-switch-track { background: #3a4a30; border-color: var(--hall-moss); }
+.codex-demo.hall-page .hall-switch.is-on .hall-switch-thumb { transform: translateX(22px); background: var(--hall-moss); box-shadow: 0 0 10px rgba(158, 196, 138, .7); }
+.codex-demo.hall-page .hall-switch-label { font: 600 14px var(--hall-serif); letter-spacing: .02em; }
+
+.codex-demo.hall-page .hall-capacity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.codex-demo.hall-page .hall-capacity-label {
+  font: 700 9px/1 'Manrope', sans-serif;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #cbb18a;
+  flex: 1 1 100%;
+}
+.codex-demo.hall-page .hall-stepper { display: inline-flex; align-items: center; gap: 10px; }
+.codex-demo.hall-page .hall-stepper button {
+  width: 34px; height: 34px;
+  background: #303629;
+  border: 1px solid #786b51;
+  color: #e8d7b7;
+  font-size: 19px;
+  border-radius: 2px;
+  transition: background .15s, border-color .15s;
+}
+.codex-demo.hall-page .hall-stepper button:hover:not(:disabled) { background: #3d4533; border-color: var(--hall-gold); }
+.codex-demo.hall-page .hall-stepper button:disabled { opacity: .4; cursor: not-allowed; }
+.codex-demo.hall-page .hall-stepper output { min-width: 26px; text-align: center; font: 600 22px var(--hall-serif); color: var(--hall-pale); }
+.codex-demo.hall-page .hall-unlimited {
+  margin-left: auto;
+  font: 700 8px/1 'Manrope', sans-serif;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  border: 1px solid #6a5f47;
+  background: #161d17;
+  color: var(--hall-muted);
+  border-radius: 2px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.codex-demo.hall-page .hall-unlimited.is-on { border-color: var(--hall-teal); color: var(--hall-teal); background: rgba(28, 48, 46, .6); }
+.codex-demo.hall-page .hall-recruiting-status { font-size: 11px; line-height: 1.5; color: #d0bea0; margin-top: 12px; }
+.codex-demo.hall-page .hall-recruiting-note { color: var(--hall-muted); }
+.codex-demo.hall-page .hall-recruit-error {
+  border: 1px solid rgba(222, 124, 92, .55);
+  background: rgba(84, 34, 22, .4);
+  color: #f6c6b2;
+  padding: 9px 11px;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.codex-demo.hall-page .hall-invite-row { display: flex; justify-content: center; margin-top: 14px; }
+.codex-demo.hall-page .table-details .primary-button { margin-top: 14px; }
+
+/* ---- Loading / empty / error states ----------------------------------- */
+.codex-demo.hall-page .hall-alert {
+  width: min(1380px, 92%);
+  margin: 0 auto 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid rgba(222, 124, 92, .55);
+  background: rgba(84, 34, 22, .4);
+  color: #f6c6b2;
+  padding: 12px 16px;
+  font-size: 12px;
+}
+.codex-demo.hall-page .hall-loading { width: min(1380px, 92%); margin: auto; padding: 30px 0; flex: 1; }
+.codex-demo.hall-page .hall-loading-row { display: flex; justify-content: center; gap: 24px; min-height: 260px; align-items: center; }
+.codex-demo.hall-page .hall-loading-table {
+  width: 200px; height: 120px; border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 30%, #3a3325, #20241e 70%);
+  border: 6px solid #2b2418;
+  animation: hall-pulse 1.6s ease-in-out infinite;
+}
+.codex-demo.hall-page .hall-loading-table:nth-child(2) { animation-delay: .2s; }
+.codex-demo.hall-page .hall-loading-table:nth-child(3) { animation-delay: .4s; }
+.codex-demo.hall-page .hall-empty {
+  width: min(560px, 92%);
+  margin: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+  padding: 40px 0;
+}
+.codex-demo.hall-page .hall-empty h2 { font: 500 34px var(--hall-serif); }
+.codex-demo.hall-page .hall-empty p { color: var(--hall-muted); font: 17px/1.5 var(--hall-serif); }
+
+/* ---- Seating dialog (portaled to body; scoped via :has) ---------------- */
+body:has(.codex-demo.hall-page) .hall-seat-dialog {
+  background: linear-gradient(145deg, rgba(38, 42, 34, .98), rgba(21, 25, 22, .98));
+  border: 1px solid rgba(202, 173, 119, .45);
+  box-shadow: 0 22px 70px #0009, inset 0 0 0 5px rgba(201, 170, 115, .035);
+  border-radius: 3px;
+  max-width: 460px;
+}
+body:has(.codex-demo.hall-page) .hall-seat-dialog .hall-seat-body { color: var(--hall-pale, #eee5d0); }
+
+/* ---- Themed scrollbars (page + horizontal floor) ----------------------- */
+html:has(.codex-demo.hall-page) { scrollbar-color: #8c7959 #14170f; scrollbar-width: thin; }
+html:has(.codex-demo.hall-page)::-webkit-scrollbar { width: 10px; height: 10px; }
+html:has(.codex-demo.hall-page)::-webkit-scrollbar-track { background: #14170f; }
+html:has(.codex-demo.hall-page)::-webkit-scrollbar-thumb { background: #5c5238; border: 2px solid #14170f; border-radius: 6px; }
+html:has(.codex-demo.hall-page)::-webkit-scrollbar-thumb:hover { background: #8c7959; }
+.codex-demo.hall-page .table-row { scrollbar-color: #8c7959 #14170f; scrollbar-width: thin; }
+.codex-demo.hall-page .table-row::-webkit-scrollbar { height: 8px; }
+.codex-demo.hall-page .table-row::-webkit-scrollbar-track { background: #14170f; border-radius: 6px; }
+.codex-demo.hall-page .table-row::-webkit-scrollbar-thumb { background: #5c5238; border-radius: 6px; }
+.codex-demo.hall-page .table-row::-webkit-scrollbar-thumb:hover { background: #8c7959; }
+
+/* ---- Motion ------------------------------------------------------------ */
+@keyframes hall-rise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes hall-flicker { 0%, 100% { opacity: 1; } 45% { opacity: .72; } 70% { opacity: .9; } }
+@keyframes hall-pulse { 0%, 100% { opacity: .5; } 50% { opacity: .9; } }
+.codex-demo.hall-page .hall-heading { animation: hall-rise .7s ease both; }
+.codex-demo.hall-page .table-details { animation: hall-rise .7s ease .12s both; }
+
+/* ---- Responsive -------------------------------------------------------- */
+@media (max-width: 899px) {
+  .codex-demo.hall-page .hall-layout { width: 94%; }
+  .codex-demo.hall-page .table-choice { flex-basis: calc((100% - 20px) / 2); }
+}
+@media (max-width: 700px) {
+  .codex-demo.hall-page .hall.scene { min-height: calc(100vh - 104px); }
+  .codex-demo.hall-page .hall-heading { margin: 30px auto 12px; }
+  .codex-demo.hall-page .hall-heading h1 { font-size: 40px; }
+  .codex-demo.hall-page .hall-heading > p { font-size: 16px; }
+  .codex-demo.hall-page .hall-layout { width: min(94%, 640px); }
+  .codex-demo.hall-page .table-row { gap: 14px; min-height: 240px; padding: 20px 4px 22px; }
+  .codex-demo.hall-page .table-choice { flex-basis: calc((100% - 14px) / 2); height: 214px; }
+  .codex-demo.hall-page .table-top { left: 0; right: 0; top: 20%; height: 38%; border-width: 5px; }
+  .codex-demo.hall-page .table-name { top: 66%; font-size: 15px; }
+  .codex-demo.hall-page .table-map { font-size: 17px; line-height: 14px; }
+  .codex-demo.hall-page .table-candle { font-size: 16px; }
+  .codex-demo.hall-page .table-dice, .codex-demo.hall-page .table-cup { font-size: 14px; }
+  .codex-demo.hall-page .hall-table-flag, .codex-demo.hall-page .hall-table-seats { font-size: 7px; padding: 4px 6px; }
+  .codex-demo.hall-page .table-details { padding: 22px; }
+  .codex-demo.hall-page .hall-actions [data-slot="button"] { flex: 1 1 auto; }
+}
+@media (max-width: 559px) {
+  .codex-demo.hall-page .hall-layout { width: min(94%, 420px); }
+  .codex-demo.hall-page .table-choice { flex-basis: 100%; height: 230px; }
+}
+@media (max-width: 380px) {
+  .codex-demo.hall-page .hall-heading h1 { font-size: 34px; }
+  .codex-demo.hall-page .table-choice { height: 200px; }
+  .codex-demo.hall-page .table-name { font-size: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codex-demo.hall-page .table-choice,
+  .codex-demo.hall-page .hall-heading,
+  .codex-demo.hall-page .table-details,
+  .codex-demo.hall-page .table-candle,
+  .codex-demo.hall-page .hall-loading-table { animation: none !important; }
+  .codex-demo.hall-page .table-row { scroll-behavior: auto !important; }
+  .codex-demo.hall-page * { transition-duration: .01ms !important; }
+}

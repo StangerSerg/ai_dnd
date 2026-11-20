@@ -157,6 +157,31 @@ class FleeAction(_Action):
     actor_id: str
 
 
+class HideAction(_Action):
+    """Спрятаться (скилл stealth). В бою стоит действия; вне боя — без бюджета хода.
+
+    Даёт состояние ``hidden``: преимущество на свои атаки, помеха на атаки по скрытому.
+    Снимается собственной атакой.
+    """
+
+    type: Literal["hide"] = "hide"
+    actor_id: str
+    slot: Literal["action", "bonus_action", "free"] = "action"
+
+
+class ProtectAction(_Action):
+    """Прикрыть союзника (скилл protect) в свой ход вместо атаки.
+
+    До следующего хода защитника атаки по союзнику идут по КД защитника,
+    и урон получает защитник.
+    """
+
+    type: Literal["protect"] = "protect"
+    actor_id: str
+    target_id: str
+    slot: Literal["action"] = "action"
+
+
 class EndCombatAction(_Action):
     """Прекратить бой без победителя: переговоры, сдача, решение ведущего."""
 
@@ -179,6 +204,8 @@ Action = Annotated[
     | EndTurnAction
     | UseTurnSlotAction
     | FleeAction
+    | HideAction
+    | ProtectAction
     | EndCombatAction,
     Field(discriminator="type"),
 ]

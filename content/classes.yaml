@@ -1,0 +1,7 @@
+# Классы беты: id — ключ записи (хранится на персонаже как class_id).
+# skills — id скиллов из content/skills.yaml; целостность проверяется загрузчиком.
+classes:
+  fighter: {skills: [protect]}
+  rogue: {skills: [stealth]}
+  cleric: {skills: [cure_wounds]}
+  ranger: {skills: []}

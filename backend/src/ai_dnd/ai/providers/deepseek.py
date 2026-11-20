@@ -11,8 +11,10 @@
 
 import json
 from collections.abc import AsyncIterator
+from decimal import Decimal
 from typing import Any
 
+import httpx2
 import openai
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageToolCall
@@ -216,3 +218,22 @@ def _translate(error: openai.OpenAIError) -> LLMError:
             return LLMError("insufficient_balance", detail)
         return LLMError("bad_request", detail)
     return LLMError("provider_error", detail)
+
+
+# --- Баланс аккаунта ---
+
+
+async def fetch_balance(api_key: str, base_url: str = DEFAULT_BASE_URL) -> Decimal:
+    """Баланс аккаунта в USD: GET /user/balance — endpoint вне OpenAI-совместимого API.
+
+    Ошибки сети и HTTP (включая 401) пробрасываются: решение о них принимает watcher.
+    """
+    async with httpx2.AsyncClient(base_url=base_url, timeout=10.0) as client:
+        response = await client.get("/user/balance", headers={"Authorization": f"Bearer {api_key}"})
+        response.raise_for_status()
+        data: Any = response.json()
+    total = Decimal(0)
+    for info in data.get("balance_infos") or []:
+        if info.get("currency") == "USD":
+            total += Decimal(str(info.get("total_balance", "0")))
+    return total

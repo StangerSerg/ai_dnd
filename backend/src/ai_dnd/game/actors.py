@@ -19,7 +19,9 @@ def attack_id(position: int) -> str:
     return f"attack_{position}"
 
 
-def actor_from_sheet(actor_id: str, name: str, sheet: ComputedSheet) -> Actor:
+def actor_from_sheet(
+    actor_id: str, name: str, sheet: ComputedSheet, skills: tuple[str, ...] = ()
+) -> Actor:
     """Персонаж игрока как участник игры.
 
     Бонусы проверок и спасбросков, класс доспеха, ресурсы и атаки берутся из посчитанной
@@ -51,6 +53,7 @@ def actor_from_sheet(actor_id: str, name: str, sheet: ComputedSheet) -> Actor:
         initiative=sheet.initiative or 0,
         resources=resources,
         attacks=attacks,
+        skills=skills,
     )
 
 

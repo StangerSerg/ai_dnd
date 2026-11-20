@@ -20,3 +20,6 @@ class Character(BaseModel):
     template: TemplateRef
     # Значения полей по id. Чего нет — берётся из значений по умолчанию шаблона.
     values: dict[str, Any] = Field(default_factory=dict)
+    # Id класса из content/classes.yaml. Верхний уровень, не values: шаблон не знает
+    # такого поля. None — у персонажей, созданных до введения модели классов.
+    class_id: str | None = None

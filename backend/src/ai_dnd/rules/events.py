@@ -80,6 +80,9 @@ class AttackResolved(_Event):
     natural: int | None
     target_ac: int
     mode: RollMode
+    # Цель прикрыта (ProtectAction): бросок шёл по КД этого защитника,
+    # и при попадании урон получает он, а не target_id.
+    redirected_to_id: str | None = None
 
 
 class DamageDealt(_Event):
@@ -128,7 +131,7 @@ class ConditionRemoved(_Event):
     type: Literal["ConditionRemoved"] = "ConditionRemoved"
     actor_id: str
     condition: str
-    reason: Literal["removed", "expired", "healed"]
+    reason: Literal["removed", "expired", "healed", "attacked"]
 
 
 class TimePassed(_Event):
@@ -188,6 +191,23 @@ class ActorFled(_Event):
     actor_id: str
 
 
+class ProtectionStarted(_Event):
+    """Защитник прикрыл союзника: атаки по союзнику принимает защитник."""
+
+    type: Literal["ProtectionStarted"] = "ProtectionStarted"
+    protector_id: str
+    target_id: str
+
+
+class ProtectionEnded(_Event):
+    """Прикрытие спало: истёк ход защитника или защитник выбыл из строя."""
+
+    type: Literal["ProtectionEnded"] = "ProtectionEnded"
+    protector_id: str
+    target_id: str
+    reason: Literal["expired", "protector_fell"]
+
+
 class CombatEnded(_Event):
     type: Literal["CombatEnded"] = "CombatEnded"
     # Сторона, которая осталась на ногах. None — бой прекращён без победителя.
@@ -213,6 +233,8 @@ Event = Annotated[
     | TurnSlotUsed
     | TurnEnded
     | ActorFled
+    | ProtectionStarted
+    | ProtectionEnded
     | CombatEnded,
     Field(discriminator="type"),
 ]

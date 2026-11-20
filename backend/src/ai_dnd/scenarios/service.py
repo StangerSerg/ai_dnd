@@ -173,6 +173,8 @@ def find_scenario_issues(
         )
 
     for npc in scenario.npcs:
+        if npc.home is not None and npc.home not in known["scenes"]:
+            issues.append(ScenarioIssue("unknown_scene", f"npcs.{npc.id}.home", {"id": npc.home}))
         if npc.statblock is not None and _missing(scenario, npc.statblock, libraries):
             issues.append(
                 ScenarioIssue(

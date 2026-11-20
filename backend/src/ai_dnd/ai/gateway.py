@@ -215,17 +215,22 @@ class LLMGateway:
         result: ProviderResult,
         started: float,
     ) -> LLMResponse:
-        prices = self._config.prices_for(settings.model, self._now())
+        fake = provider.name == "fake"
+        cost = (
+            Decimal(0)
+            if fake
+            else self._config.prices_for(settings.model, self._now()).cost(result.usage)
+        )
         return LLMResponse(
             text=result.text,
             tool_calls=result.tool_calls,
             reasoning=result.reasoning,
             finish_reason=result.finish_reason,
             usage=result.usage,
-            cost=prices.cost(result.usage),
+            cost=cost,
             task=task,
             provider=provider.name,
-            model=settings.model,
+            model="fake" if fake else settings.model,
             latency_ms=_elapsed_ms(started),
         )
 

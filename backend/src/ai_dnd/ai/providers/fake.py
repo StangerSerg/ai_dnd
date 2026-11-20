@@ -1,15 +1,4 @@
-"""Модель-заглушка: проверить цикл ведущего без денег и без сети.
-
-Отвечает по простым правилам, глядя на последнее сообщение:
-
-- после ответа инструмента — короткий «рассказ» об исходе;
-- на ход игроков — вызывает инструмент: «иду/go» — ``change_scene`` к первому выходу,
-  «атакую/attack» — ``start_combat`` с первым столкновением сцены, иначе —
-  ``request_check`` на Восприятие для первого игрока;
-- в остальных случаях (начало сессии, описание боя) — короткий текст.
-
-Качество рассказа заглушка не проверяет — только то, что все части цикла связаны.
-"""
+"""Offline model stub for structured decisions and basic narration."""
 
 import json
 import re
@@ -22,6 +11,8 @@ _ACTOR = re.compile(r"\(id: ([a-z0-9_]+)\): (.+)")
 _SECTION_ITEM = re.compile(r"^- ([a-z0-9_]+):", re.MULTILINE)
 _MOVE_WORDS = ("иду", "идём", "идем", "отправля", "go ", "go.", "head ", "travel")
 _ATTACK_WORDS = ("атак", "нападаю", "напада", "бью", "attack", "fight")
+_INSPECT_WORDS = ("осматр", "ищ", "изуч", "inspect", "search", "look for")
+_INDEXED_ACTION = re.compile(r"^- input_index=(\d+), actor_id=([a-z0-9_]+): (.+)$", re.MULTILINE)
 
 
 class FakeProvider:
@@ -42,15 +33,140 @@ class FakeProvider:
     def _answer(self, request: CompletionRequest) -> ProviderResult:
         self._calls += 1
         last = request.messages[-1]
+        english = any(
+            message.role == "system" and "You narrate in English." in (message.content or "")
+            for message in request.messages
+        )
+        # Задача сводки (раздел 9.3): маркер в системном промпте, без импорта game-слоя.
+        summarizer = next(
+            (
+                message.content or ""
+                for message in request.messages
+                if message.role == "system" and "session summarizer" in (message.content or "")
+            ),
+            None,
+        )
+        if summarizer is not None:
+            recap = (
+                "(stub) Recap of earlier turns: key facts preserved."
+                if "written in English" in summarizer
+                else "(заглушка) Сводка ранних ходов: ключевые факты сохранены."
+            )
+            return self._text(request, recap)
+        # Задача импорта (подэтап 2.5): маркер в системном промпте, без импорта importer-слоя.
+        importer = next(
+            (
+                message.content or ""
+                for message in request.messages
+                if message.role == "system" and "scenario importer" in (message.content or "")
+            ),
+            None,
+        )
+        if importer is not None:
+            return self._text(request, self._import_json(importer))
+        if request.json_output:
+            return self._text(request, self._decision_json(last))
         if last.role == "tool":
-            return self._text(request, f"(заглушка) Движок ответил: {_short(last.content)}.")
+            prefix = "(stub) The engine responded" if english else "(заглушка) Движок ответил"
+            return self._text(request, f"{prefix}: {_short(last.content)}.")
         if request.tools and request.tool_choice != "none" and last.role == "user":
             call = self._tool_call(last)
             if call is not None:
                 return self._result(request, "", (call,))
-        if last.role == "user" and (last.content or "").startswith("# Combat log"):
-            return self._text(request, "(заглушка) Раунд боя: клинки звенят, кто-то падает.")
-        return self._text(request, "(заглушка) Ведущий описывает сцену и ждёт ваших действий.")
+        if last.role == "user" and "# Combat log since" in (last.content or ""):
+            text = (
+                "(stub) Combat round: blades clash, someone falls."
+                if english
+                else "(заглушка) Раунд боя: клинки звенят, кто-то падает."
+            )
+            return self._text(request, text)
+        text = (
+            "(stub) The game master describes the scene and waits for your actions."
+            if english
+            else "(заглушка) Ведущий описывает сцену и ждёт ваших действий."
+        )
+        return self._text(request, text)
+
+    def _import_json(self, prompt: str) -> str:
+        """Минимальный валидный ImportDraft: одна стартовая сцена и заметка-допущение."""
+        russian = "in Russian" in prompt
+        title = "(заглушка) Импортированный сценарий" if russian else "(stub) Imported scenario"
+        synopsis = (
+            "(заглушка) Краткий пересказ модуля: замените текстом автора."
+            if russian
+            else "(stub) Short module synopsis: replace with the author's text."
+        )
+        read_aloud = (
+            "(заглушка) Вы стоите в начале приключения. Ведущий ждёт ваших действий."
+            if russian
+            else "(stub) You stand at the start of the adventure. The DM awaits your actions."
+        )
+        note = (
+            "Заглушка не разбирает модуль: весь черновик — минимальный каркас, "
+            "заполните его по тексту автора."
+            if russian
+            else "The stub does not parse the module: the draft is a minimal skeleton, "
+            "fill it in from the author's text."
+        )
+        draft = {
+            "scenario": {
+                "scenario": {
+                    "title": title,
+                    "language": "ru" if russian else "en",
+                    "ruleset": "dnd5e-srd@1",
+                    "sheet_template": "srd5-basic@1",
+                    "start_scene": "start",
+                    "synopsis": synopsis,
+                },
+                "scenes": [{"id": "start", "title": title, "read_aloud": read_aloud}],
+            },
+            "notes": [{"kind": "assumption", "path": "scenario", "text": note}],
+        }
+        return json.dumps(draft, ensure_ascii=False)
+
+    def _decision_json(self, message: Message) -> str:
+        content = message.content or ""
+        section = content.split("# Unresolved original inputs (authoritative indices)", 1)[-1]
+        section = section.split("\n\n#", 1)[0]
+        actions = _INDEXED_ACTION.findall(section)
+        exits = _items(content, "Exits:")
+        encounters = _items(content, "Encounters here:")
+        choices: list[dict[str, object]] = []
+        already_moved = "# Movement already completed in this turn\nTrue" in content
+        move_found = (
+            any(any(word in text.lower() for word in _MOVE_WORDS) for _, _, text in actions)
+            and bool(exits)
+            and not already_moved
+        )
+        for index, actor_id, action_text in actions:
+            lowered = action_text.lower()
+            choice: dict[str, object] = {
+                "input_index": int(index),
+                "actor_id": actor_id,
+                "kind": "stay",
+            }
+            if any(word in lowered for word in _MOVE_WORDS) and exits and not already_moved:
+                choice.update(
+                    kind="move",
+                    scene_id=exits[0],
+                    continue_after=any(word in lowered for word in _INSPECT_WORDS),
+                )
+            elif move_found:
+                choice["kind"] = "defer"
+            elif any(word in lowered for word in _ATTACK_WORDS) and encounters:
+                choice.update(kind="engage", encounter_id=encounters[0])
+            elif any(word in lowered for word in _INSPECT_WORDS):
+                choice.update(
+                    kind="tool",
+                    tool_name="request_check",
+                    arguments={
+                        "actor_id": actor_id,
+                        "skill": "perception",
+                        "difficulty": "medium",
+                    },
+                )
+            choices.append(choice)
+        return json.dumps({"actions": choices}, ensure_ascii=False)
 
     def _tool_call(self, message: Message) -> ToolCall | None:
         content = message.content or ""

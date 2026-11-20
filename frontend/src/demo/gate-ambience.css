@@ -1,0 +1,28 @@
+/* Mirror the background's center/cover crop on the 1536x1024 source. */
+.codex-demo .gate-ambience{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;display:grid;place-items:center;container-type:size}
+.codex-demo .gate-ambience-frame{position:relative;width:max(100%,150cqh);height:max(100%,66.6667cqw)}
+/* The opening transition swaps the raster to the hall — ambience fades out. */
+.codex-demo.screen-opening .gate-ambience,.codex-demo .screen-opening .gate-ambience{opacity:0;transition:opacity .25s}
+
+.codex-demo .gate-torch{position:absolute;top:41.699219%;width:4.6875%;aspect-ratio:2/3;transform:translate(-50%,-100%);opacity:0;mix-blend-mode:screen;--glow-dur:4.7s;--glow-delay:-.3s}
+.codex-demo .gate-torch-left{left:24.348958%}
+.codex-demo .gate-torch-right{left:75.716146%;--glow-dur:5.1s;--glow-delay:-2.1s}
+.codex-demo .gate-torch-video{display:block;width:100%;height:100%;object-fit:contain;mix-blend-mode:screen;pointer-events:none}
+.codex-demo .gate-torch-right .gate-torch-video{transform:scaleX(-1)}
+.codex-demo .gate-torch-glow{position:absolute;left:-80%;bottom:-45%;width:260%;height:150%;border-radius:50%;mix-blend-mode:screen;background:radial-gradient(ellipse at 50% 45%,rgba(255,173,68,.2) 0%,rgba(245,119,28,.09) 38%,transparent 72%);animation:gate-torch-glow var(--glow-dur) linear var(--glow-delay) infinite}
+@keyframes gate-torch-glow{0%,100%{opacity:.56}13%{opacity:.7}21%{opacity:.49}38%{opacity:.62}46%{opacity:.54}61%{opacity:.73}69%{opacity:.59}87%{opacity:.66}94%{opacity:.51}}
+@media(prefers-reduced-motion:no-preference){
+  /* Switch both flames and the cleanplate together to keep partial failures intact. */
+  .codex-demo .gate:has(.gate-torch-left.is-playing):has(.gate-torch-right.is-playing){--gate-background:url('/images/castle-gate-clear-moon-unlit.webp')}
+  .codex-demo .gate:has(.gate-torch-left.is-playing):has(.gate-torch-right.is-playing) .gate-ambience-video .gate-torch{opacity:1}
+  .codex-demo .gate-ambience-video{mix-blend-mode:screen}
+}
+
+/* Mobile mirrors the background's center 76px/100% auto positioning. */
+@media(max-width:700px){
+  .codex-demo .gate-ambience{display:block}
+  .codex-demo .gate-ambience-frame{position:absolute;left:0;top:76px;width:100%;height:auto;aspect-ratio:1536/1024}
+}
+@media(prefers-reduced-motion:reduce){
+  .codex-demo .gate-torch-glow{animation:none}
+}

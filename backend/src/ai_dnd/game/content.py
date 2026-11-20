@@ -8,6 +8,7 @@ from pathlib import Path
 from ai_dnd.characters.service import build_sheet, load_character
 from ai_dnd.game.actors import actor_from_sheet
 from ai_dnd.game.session import PlayerSeat, SessionState
+from ai_dnd.game.skills import CharacterClass, Skill, class_grants, load_classes_and_skills
 from ai_dnd.rules.ruleset import Ruleset
 from ai_dnd.rules.state import Actor, GameState
 from ai_dnd.rulesets.glossary import Glossary, load_glossary
@@ -24,6 +25,8 @@ class GameContent:
     bestiaries: tuple[Bestiary, ...]
     scenario: Scenario
     glossary: Glossary
+    classes: dict[str, CharacterClass]
+    skills: dict[str, Skill]
 
     @property
     def language(self) -> str:
@@ -45,12 +48,15 @@ def load_game_content(content_dir: Path, scenario: str, language: str) -> GameCo
     bestiaries = tuple(
         load_bestiary(item, ruleset) for item in sorted((content_dir / "bestiary").glob("*.yaml"))
     )
+    classes, skills = load_classes_and_skills(content_dir)
     return GameContent(
         ruleset=ruleset,
         template=template,
         bestiaries=bestiaries,
         scenario=load_scenario(path, bestiaries, ruleset),
         glossary=load_glossary(content_dir / "glossary.yaml"),
+        classes=classes,
+        skills=skills,
     )
 
 
@@ -59,7 +65,7 @@ def load_party(
 ) -> tuple[list[PlayerSeat], list[Actor]]:
     """Готовые персонажи ``content/characters/<язык>/<имя>.json``.
 
-    Id участника — имя файла (``rogue``), игроки — ``p1``, ``p2`` и так далее.
+    Id участника — имя файла (``rogue``), он же id класса; игроки — ``p1``, ``p2`` и так далее.
     """
     seats: list[PlayerSeat] = []
     actors: list[Actor] = []
@@ -67,13 +73,16 @@ def load_party(
         character = load_character(content_dir / "characters" / content.language / f"{name}.json")
         sheet = build_sheet(character, content.template)
         display = str(sheet.values.get("name") or name)
-        actors.append(actor_from_sheet(name, display, sheet))
+        granted, cure_wounds = class_grants(content.classes, content.skills, name, sheet)
+        actors.append(actor_from_sheet(name, display, sheet, skills=granted))
         seats.append(
             PlayerSeat(
                 player_id=f"p{number}",
                 actor_id=name,
                 name=display,
                 summary=_summary(sheet.values),
+                skills=granted,
+                cure_wounds=cure_wounds,
             )
         )
     return seats, actors

@@ -58,6 +58,25 @@ class NpcAttitudeChanged(GameEventBase):
     attitude: Attitude
 
 
+class NpcMoved(GameEventBase):
+    """NPC переместился в другую сцену: авторитетное присутствие (state.npc_locations).
+
+    ``from_scene`` — откуда ушёл (записанная локация или home сценария), если известна.
+    """
+
+    type: Literal["NpcMoved"] = "NpcMoved"
+    npc_id: str
+    scene_id: str
+    from_scene: str | None = None
+
+
+class NpcDied(GameEventBase):
+    """NPC погиб — в бою или в рассказе ведущего: авторитетный статус (state.npc_status)."""
+
+    type: Literal["NpcDied"] = "NpcDied"
+    npc_id: str
+
+
 class ItemGranted(GameEventBase):
     type: Literal["ItemGranted"] = "ItemGranted"
     actor_id: str
@@ -81,15 +100,47 @@ class ActorsJoined(GameEventBase):
     actors: tuple[Actor, ...]
 
 
+class EncounterStarted(GameEventBase):
+    """Remember a scenario encounter across combat and scene changes."""
+
+    type: Literal["EncounterStarted"] = "EncounterStarted"
+    encounter_id: str
+
+
+class SummaryUpdated(GameEventBase):
+    """Сводка «что было раньше»: сжатие ходов, ушедших из дословного окна (раздел 9.3).
+
+    ``through_turn`` — сколько записей истории уже свёрнуто в сводку; воспроизводимо
+    из журнала. Видимость dm: сводка идёт только в промпт ведущего, не игрокам.
+    """
+
+    type: Literal["SummaryUpdated"] = "SummaryUpdated"
+    visibility: Visibility = DM
+    text: str
+    through_turn: int
+
+
+class PartyDefeated(GameEventBase):
+    """TPK: все герои без сознания или мертвы — поражение сценария."""
+
+    type: Literal["PartyDefeated"] = "PartyDefeated"
+    visibility: Visibility = PUBLIC
+
+
 GameEvent = Annotated[
     PlayerActed
     | Narrated
     | SceneChanged
     | Revealed
     | NpcAttitudeChanged
+    | NpcMoved
+    | NpcDied
     | ItemGranted
     | FactNoted
-    | ActorsJoined,
+    | ActorsJoined
+    | EncounterStarted
+    | SummaryUpdated
+    | PartyDefeated,
     Field(discriminator="type"),
 ]
 

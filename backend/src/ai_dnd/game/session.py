@@ -16,15 +16,20 @@ from pydantic import BaseModel, ConfigDict, Field
 from ai_dnd.game.events import (
     ActorsJoined,
     Attitude,
+    EncounterStarted,
     FactNoted,
     GameEventBase,
     ItemGranted,
     JournalEvent,
     Narrated,
     NpcAttitudeChanged,
+    NpcDied,
+    NpcMoved,
     Revealed,
     SceneChanged,
+    SummaryUpdated,
 )
+from ai_dnd.game.spells import CureWoundsCapability
 from ai_dnd.rules.apply import apply
 from ai_dnd.rules.state import GameState
 
@@ -46,6 +51,8 @@ class PlayerSeat(_Frozen):
     # Имя персонажа и коротко, кто он: «Полурослик, Плут 3».
     name: str
     summary: str = ""
+    skills: tuple[str, ...] = ()
+    cure_wounds: CureWoundsCapability | None = None
 
 
 class SessionSetup(_Frozen):
@@ -76,8 +83,17 @@ class SessionState(_Frozen):
     revealed: tuple[str, ...] = ()
     # Отношение NPC, если оно изменилось по ходу игры.
     attitudes: dict[str, Attitude] = Field(default_factory=dict)
+    # Где сейчас находится NPC (npc_id -> scene_id): поверх home из сценария.
+    # Авторитетное присутствие; Redis-кэш локаций — производный и пересобираемый.
+    npc_locations: dict[str, str] = Field(default_factory=dict)
+    # Статус NPC (npc_id -> alive/dead): журнал NpcDied; отсутствие ключа — жив.
+    npc_status: dict[str, Literal["alive", "dead"]] = Field(default_factory=dict)
     inventory: dict[str, tuple[InventoryItem, ...]] = Field(default_factory=dict)
     facts: tuple[str, ...] = ()
+    started_encounters: tuple[str, ...] = ()
+    # Сводка «что было раньше» и сколько записей истории в неё свёрнуто (раздел 9.3).
+    summary: str = ""
+    summary_through_turn: int = 0
     # Сколько раз ведущий рассказывал.
     turn: int = 0
 
@@ -103,6 +119,12 @@ def apply_event(state: SessionState, event: JournalEvent) -> SessionState:
         case NpcAttitudeChanged():
             attitudes = {**state.attitudes, event.npc_id: event.attitude}
             return state.model_copy(update={"attitudes": attitudes})
+        case NpcMoved():
+            locations = {**state.npc_locations, event.npc_id: event.scene_id}
+            return state.model_copy(update={"npc_locations": locations})
+        case NpcDied():
+            status = {**state.npc_status, event.npc_id: "dead"}
+            return state.model_copy(update={"npc_status": status})
         case ItemGranted():
             items = (
                 *state.inventory.get(event.actor_id, ()),
@@ -117,8 +139,18 @@ def apply_event(state: SessionState, event: JournalEvent) -> SessionState:
             for actor in event.actors:
                 rules = rules.with_actor(actor)
             return state.model_copy(update={"rules": rules})
+        case EncounterStarted():
+            if event.encounter_id in state.started_encounters:
+                return state
+            return state.model_copy(
+                update={"started_encounters": (*state.started_encounters, event.encounter_id)}
+            )
         case Narrated():
             return state.model_copy(update={"turn": state.turn + 1})
+        case SummaryUpdated():
+            return state.model_copy(
+                update={"summary": event.text, "summary_through_turn": event.through_turn}
+            )
         case _:
             return state
 

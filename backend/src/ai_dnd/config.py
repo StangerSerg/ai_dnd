@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     # Модели, цены и настройки задач ИИ.
     llm_config: Path = BACKEND_DIR / "config" / "llm.yaml"
 
+    # Локальные эмбеддинги для поиска по сценарию (архитектура 8.4, 10).
+    # Многоязычная модель: поиск работает и по русскому, и по английскому.
+    # Смена модели или размерности требует переиндексации (имя пишется в метаданные).
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_dim: int = 384
+
 
 @lru_cache
 def get_settings() -> Settings:

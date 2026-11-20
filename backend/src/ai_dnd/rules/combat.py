@@ -10,12 +10,16 @@
 не сбежал и хитов больше нуля.
 """
 
+from collections.abc import Sequence
+
 from ai_dnd.rules.actions import (
     Action,
     AttackAction,
     EndCombatAction,
     EndTurnAction,
     FleeAction,
+    HideAction,
+    ProtectAction,
     StartCombatAction,
     UseTurnSlotAction,
 )
@@ -29,6 +33,7 @@ from ai_dnd.rules.events import (
     ConditionRemoved,
     DiceRolled,
     Event,
+    ProtectionEnded,
     RoundStarted,
     TurnEnded,
     TurnSlotUsed,
@@ -36,7 +41,7 @@ from ai_dnd.rules.events import (
 )
 from ai_dnd.rules.rng import Rng
 from ai_dnd.rules.ruleset import Ruleset
-from ai_dnd.rules.state import Actor, CombatState, GameState, TurnSlot
+from ai_dnd.rules.state import HIDDEN, Actor, CombatState, GameState, TurnSlot
 
 # --- Кто в каком положении ---
 
@@ -99,6 +104,25 @@ def combat_end(state: GameState, visibility: str) -> CombatEnded | None:
     if len(sides) >= 2:
         return None
     return CombatEnded(visibility=visibility, winner=sides[0] if sides else None)
+
+
+def party_wiped(ruleset: Ruleset, state: GameState, party_ids: Sequence[str]) -> bool:
+    """TPK: каждый герой мёртв или небоеспособен (0 хитов / prevents_actions).
+
+    Сбежавший, но живой и на ногах герой поражением не считается. Пустой отряд — False.
+    """
+    if not party_ids:
+        return False
+    for actor_id in party_ids:
+        actor = state.actors.get(actor_id)
+        if actor is None:
+            return False
+        if actor.dead or incapacitated_by(ruleset, actor) is not None:
+            continue
+        if actor.hp is not None and actor.hp.current == 0:
+            continue
+        return False
+    return True
 
 
 def require_turn(state: GameState, actor_id: str, slot: TurnSlot | None = None) -> CombatState:
@@ -250,6 +274,17 @@ def _next_turn_events(
             # Очередь прошла по кругу — новый раунд.
             round_number += 1
             events.append(RoundStarted(visibility=visibility, round=round_number))
+        # С ходом защитника спадает прикрытие, которое он дал на прошлом ходу.
+        events.extend(
+            ProtectionEnded(
+                visibility=visibility,
+                protector_id=candidate,
+                target_id=other,
+                reason="expired",
+            )
+            for other in order
+            if state.actors[other].protected_by == candidate
+        )
         events.append(
             TurnStarted(
                 visibility=visibility,
@@ -280,14 +315,43 @@ def available_actions(ruleset: Ruleset, state: GameState, actor_id: str) -> list
     actions: list[Action] = []
     able = not actor.dead and incapacitated_by(ruleset, actor) is None
     if able and combat.remaining.action > 0:
-        targets = [state.actors[enemy] for enemy in enemies_of(state, actor_id)]
+        enemies = [state.actors[enemy] for enemy in enemies_of(state, actor_id)]
+        # Скрытых не видно: их не таргетят. Если скрыты все — бьют наугад (фолбэк).
+        visible = [enemy for enemy in enemies if enemy.condition(HIDDEN) is None]
+        targets = visible or enemies
         for attack, profile in actor.attacks.items():
             actions.extend(
                 AttackAction(attacker_id=actor_id, target_id=target.id, attack=attack)
                 for target in targets
                 if target.ac is not None and (profile.damage is None or target.hp is not None)
             )
+        if (
+            "stealth" in actor.skills
+            and HIDDEN in ruleset.conditions
+            and actor.condition(HIDDEN) is None
+        ):
+            actions.append(HideAction(actor_id=actor_id))
+        if "protect" in actor.skills:
+            actions.extend(
+                ProtectAction(actor_id=actor_id, target_id=ally.id)
+                for ally in allies_of(ruleset, state, actor_id)
+                if ally.protected_by != actor_id
+            )
         if combat.remaining.movement > 0:
             actions.append(FleeAction(actor_id=actor_id))
     actions.append(EndTurnAction(actor_id=actor_id))
     return actions
+
+
+def allies_of(ruleset: Ruleset, state: GameState, actor_id: str) -> list[Actor]:
+    """Союзники, которых можно прикрыть: та же сторона, на ногах и в сознании, не сам себя."""
+    combat = require_combat(state)
+    side = combat.sides.get(actor_id)
+    return [
+        state.actors[other]
+        for other in combat.order
+        if other != actor_id
+        and combat.sides[other] == side
+        and can_fight(state, other)
+        and incapacitated_by(ruleset, state.actors[other]) is None
+    ]

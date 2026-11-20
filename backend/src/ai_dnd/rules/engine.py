@@ -27,7 +27,9 @@ from ai_dnd.rules.actions import (
     EndTurnAction,
     FleeAction,
     HealAction,
+    HideAction,
     PassTimeAction,
+    ProtectAction,
     RemoveConditionAction,
     ResourceAction,
     RestAction,
@@ -38,6 +40,7 @@ from ai_dnd.rules.actions import (
 from ai_dnd.rules.apply import apply_all
 from ai_dnd.rules.combat import (
     available_actions,
+    can_fight,
     combat_end,
     end_combat,
     end_turn,
@@ -72,6 +75,8 @@ from ai_dnd.rules.events import (
     DiceRolled,
     Event,
     Healed,
+    ProtectionEnded,
+    ProtectionStarted,
     ResourceChanged,
     Rested,
     TimePassed,
@@ -88,7 +93,7 @@ from ai_dnd.rules.ruleset import (
     RulesetError,
     find_ruleset_issues,
 )
-from ai_dnd.rules.state import HIT_POINTS, Actor, GameState, Resource, TurnSlot
+from ai_dnd.rules.state import HIDDEN, HIT_POINTS, Actor, GameState, Resource, TurnSlot
 
 CheckKind = Literal["check", "save"]
 
@@ -126,6 +131,7 @@ class RulesEngine:
     def resolve(self, state: GameState, action: Action, rng: Rng) -> list[Event]:
         """События, к которым приводит действие. Состояние не меняется."""
         events = self._dispatch(state, action, rng)
+        events.extend(self._fallen_protectors(state, events, action.visibility))
         if state.combat is not None and not any(isinstance(e, CombatEnded) for e in events):
             # Бой заканчивается сам, как только на ногах осталась одна сторона —
             # от удара, ловушки или решения ведущего.
@@ -133,6 +139,36 @@ class RulesEngine:
             if ended is not None:
                 events.append(ended)
         return events
+
+    def _fallen_protectors(
+        self, state: GameState, events: list[Event], visibility: str
+    ) -> list[Event]:
+        """Защитник погиб или потерял сознание от любого урона — прикрытие спадает."""
+        fallen: list[str] = []
+        for event in events:
+            if isinstance(event, ActorDied):
+                fallen.append(event.actor_id)
+            elif isinstance(event, DamageDealt) and event.hp_after == 0:
+                fallen.append(event.target_id)
+        already_ended = {
+            (event.protector_id, event.target_id)
+            for event in events
+            if isinstance(event, ProtectionEnded)
+        }
+        extra: list[Event] = []
+        for protector_id in dict.fromkeys(fallen):
+            extra.extend(
+                ProtectionEnded(
+                    visibility=visibility,
+                    protector_id=protector_id,
+                    target_id=ward.id,
+                    reason="protector_fell",
+                )
+                for ward in state.actors.values()
+                if ward.protected_by == protector_id
+                and (protector_id, ward.id) not in already_ended
+            )
+        return extra
 
     def available_actions(self, state: GameState, actor_id: str) -> list[Action]:
         """Что участник боя может сделать прямо сейчас. Вне своего хода — ничего."""
@@ -224,6 +260,10 @@ class RulesEngine:
                 return use_turn_slot(state, action)
             case FleeAction():
                 return flee(self.ruleset, state, action)
+            case HideAction():
+                return self._hide(state, action)
+            case ProtectAction():
+                return self._protect(state, action)
             case EndCombatAction():
                 return end_combat(state, action)
             case _:
@@ -420,11 +460,29 @@ class RulesEngine:
         profile = attacker.attacks.get(action.attack)
         if profile is None:
             raise ActionError("unknown_attack", actor_id=attacker.id, attack=action.attack)
-        if target.ac is None:
-            raise ActionError("no_armor_class", actor_id=target.id)
+
+        events: list[Event] = []
+        # Прикрытую цель защищает другой участник: бросок идёт по его КД,
+        # и урон получает он. Выбывший защитник — прикрытие спадает на месте.
+        struck = target
+        if target.protected_by is not None:
+            protector = state.actors.get(target.protected_by)
+            if protector is not None and self._can_guard(state, protector):
+                struck = protector
+            else:
+                events.append(
+                    ProtectionEnded(
+                        visibility=action.visibility,
+                        protector_id=target.protected_by,
+                        target_id=target.id,
+                        reason="protector_fell",
+                    )
+                )
+        if struck.ac is None:
+            raise ActionError("no_armor_class", actor_id=struck.id)
         if profile.damage is not None:
             # До броска атаки: если урон нанести нельзя, не должна быть брошена ни одна кость.
-            self._ensure_can_be_damaged(target, profile.damage_type)
+            self._ensure_can_be_damaged(struck, profile.damage_type)
 
         # В бою атака стоит части хода и возможна только в свой ход. «free» — исключение
         # для атак вне очереди. Участников вне боя это не касается.
@@ -437,7 +495,7 @@ class RulesEngine:
                 paid_with = action.slot
 
         own = self._modifiers(attacker, EffectTarget.ATTACKS, None)
-        against = self._modifiers(target, EffectTarget.ATTACKS_AGAINST, None)
+        against = self._modifiers(struck, EffectTarget.ATTACKS_AGAINST, None)
         mode = _combine_modes([action.mode, *own.modes, *against.modes])
         terms = (
             *self._attack_dice,
@@ -461,9 +519,8 @@ class RulesEngine:
         ):
             outcome = Outcome.CRITICAL_SUCCESS
         else:
-            outcome = Outcome.SUCCESS if result.total >= target.ac else Outcome.FAILURE
+            outcome = Outcome.SUCCESS if result.total >= struck.ac else Outcome.FAILURE
 
-        events: list[Event] = []
         if paid_with is not None:
             events.append(
                 TurnSlotUsed(visibility=action.visibility, actor_id=attacker.id, slot=paid_with)
@@ -481,8 +538,9 @@ class RulesEngine:
                 outcome=outcome,
                 total=result.total,
                 natural=natural,
-                target_ac=target.ac,
+                target_ac=struck.ac,
                 mode=mode,
+                redirected_to_id=struck.id if struck.id != target.id else None,
             ),
         ]
         if outcome.succeeded and profile.damage is not None:
@@ -491,10 +549,73 @@ class RulesEngine:
                 damage = _double_dice(damage)
             events.extend(
                 self._damage(
-                    target, damage, profile.damage_type, attacker.id, action.visibility, rng
+                    struck, damage, profile.damage_type, attacker.id, action.visibility, rng
+                )
+            )
+        if attacker.condition(HIDDEN) is not None:
+            # Своя атака выдаёт скрытого — после броска, чтобы он ещё успел дать преимущество.
+            events.append(
+                ConditionRemoved(
+                    visibility=action.visibility,
+                    actor_id=attacker.id,
+                    condition=HIDDEN,
+                    reason="attacked",
                 )
             )
         return events
+
+    def _can_guard(self, state: GameState, protector: Actor) -> bool:
+        """Защитник способен принять удар: на ногах и в сознании."""
+        return can_fight(state, protector.id) and incapacitated_by(self.ruleset, protector) is None
+
+    def _hide(self, state: GameState, action: HideAction) -> list[Event]:
+        actor = _alive(state.actor(action.actor_id))
+        self._ensure_can_act(actor)
+        if "stealth" not in actor.skills:
+            raise ActionError("skill_not_available", actor_id=actor.id, skill="stealth")
+        if HIDDEN not in self.ruleset.conditions:
+            raise ActionError("unknown_condition", condition=HIDDEN)
+        if actor.condition(HIDDEN) is not None:
+            raise ActionError("already_hidden", actor_id=actor.id)
+        events: list[Event] = []
+        if state.combat is not None and action.slot != "free" and actor.id in state.combat.sides:
+            require_turn(state, actor.id, action.slot)
+            events.append(
+                TurnSlotUsed(visibility=action.visibility, actor_id=actor.id, slot=action.slot)
+            )
+        events.append(
+            ConditionApplied(
+                visibility=action.visibility,
+                actor_id=actor.id,
+                condition=HIDDEN,
+                rounds=None,
+            )
+        )
+        return events
+
+    def _protect(self, state: GameState, action: ProtectAction) -> list[Event]:
+        if not self.ruleset.combat.enabled:
+            raise ActionError("combat_disabled")
+        protector = _alive(state.actor(action.actor_id))
+        self._ensure_can_act(protector)
+        if "protect" not in protector.skills:
+            raise ActionError("skill_not_available", actor_id=protector.id, skill="protect")
+        combat = require_turn(state, protector.id, action.slot)
+        target = _alive(state.actor(action.target_id))
+        if target.id == protector.id:
+            raise ActionError("cannot_protect_self", actor_id=protector.id)
+        if combat.sides.get(target.id) != combat.sides[protector.id]:
+            raise ActionError("not_an_ally", actor_id=protector.id, target_id=target.id)
+        if not can_fight(state, target.id) or incapacitated_by(self.ruleset, target) is not None:
+            raise ActionError("ally_cannot_be_protected", target_id=target.id)
+        if target.protected_by == protector.id:
+            raise ActionError("already_protected", actor_id=protector.id, target_id=target.id)
+        return [
+            TurnSlotUsed(visibility=action.visibility, actor_id=protector.id, slot=action.slot),
+            ProtectionStarted(
+                visibility=action.visibility, protector_id=protector.id, target_id=target.id
+            ),
+        ]
 
     def _ensure_can_be_damaged(self, target: Actor, damage_type: str | None) -> Resource:
         """Хиты цели — или отказ, если хитов нет либо тип урона набору правил неизвестен."""

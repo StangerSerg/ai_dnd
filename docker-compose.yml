@@ -1,0 +1,128 @@
+# Самостоятельное развёртывание AI DnD: весь стек одной командой.
+#   cp .env.example .env   # заполнить секреты
+#   docker compose up -d --build
+#   открыть http://localhost:8080
+# Порты PostgreSQL и Redis наружу НЕ публикуются — только внутренняя сеть.
+# Dev-инфраструктура (infra/docker-compose.yml) — отдельный проект, не конфликтует.
+name: ai-dnd-portal
+
+services:
+  db:
+    # pgvector обязателен: миграция 0001 делает CREATE EXTENSION vector.
+    # Обычный postgres:16-alpine не подойдёт.
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ai_dnd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_dnd}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ai_dnd} -d ${POSTGRES_DB:-ai_dnd}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - appnet
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - appnet
+
+  backend:
+    build:
+      # Контекст — корень репозитория: образу нужна папка content/.
+      context: .
+      dockerfile: backend/Dockerfile
+    image: ai-dnd-portal/backend:local
+    restart: unless-stopped
+    # ENV_FILE позволяет подменить файл настроек (например, для smoke-проверки):
+    #   docker compose --env-file .local/docker-smoke.env up -d
+    env_file:
+      - path: ${ENV_FILE:-.env}
+        required: false
+    environment:
+      # Дефолты на случай отсутствия .env; значения из .env имеют приоритет
+      # через интерполяцию (compose читает корневой .env или --env-file).
+      AI_DND_DATABASE_URL: ${AI_DND_DATABASE_URL:-postgresql+asyncpg://ai_dnd:change-me@db:5432/ai_dnd}
+      AI_DND_REDIS_URL: ${AI_DND_REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # /health возвращает 503, если база или Redis недоступны.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    volumes:
+      # Кэш модели эмбеддингов (sentence-transformers), чтобы не качать её заново.
+      - model-cache:/home/app/.cache
+    networks:
+      - appnet
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: ai-dnd-portal/backend:local
+    restart: unless-stopped
+    # Тот же образ, что и у backend; entrypoint с аргументами пропускает миграции.
+    command: ["taskiq", "worker", "ai_dnd.worker:broker", "ai_dnd.tasks"]
+    env_file:
+      - path: ${ENV_FILE:-.env}
+        required: false
+    environment:
+      AI_DND_DATABASE_URL: ${AI_DND_DATABASE_URL:-postgresql+asyncpg://ai_dnd:change-me@db:5432/ai_dnd}
+      AI_DND_REDIS_URL: ${AI_DND_REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - model-cache:/home/app/.cache
+    networks:
+      - appnet
+
+  web:
+    build:
+      context: ./frontend
+    image: ai-dnd-portal/web:local
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - appnet
+
+networks:
+  appnet:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  model-cache:

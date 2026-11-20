@@ -1,0 +1,10 @@
+# В образ сборки не попадают зависимости, артефакты и секреты.
+node_modules
+dist
+.env
+.env.*
+*.log
+.vite
+tsconfig.tsbuildinfo
+Dockerfile
+.dockerignore
