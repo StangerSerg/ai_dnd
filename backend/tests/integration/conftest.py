@@ -69,7 +69,8 @@ async def scenario_dir(
     target = tmp_path / "content"
     for sub in ("rulesets", "sheets", "bestiary"):
         shutil.copytree(content_dir / sub, target / sub)
-    shutil.copy2(content_dir / "glossary.yaml", target / "glossary.yaml")
+    for name in ("glossary.yaml", "classes.yaml", "skills.yaml"):
+        shutil.copy2(content_dir / name, target / name)
     scenarios = target / "scenarios"
     scenarios.mkdir()
     for lang in ("ru", "en"):
