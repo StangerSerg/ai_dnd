@@ -26,10 +26,15 @@ from ai_dnd.game.tools import (
     AdjustResourceArgs,
     CastCureWoundsArgs,
     DmTools,
+    EnhanceItemArgs,
+    EquipItemArgs,
     LookupLoreArgs,
     ProtectArgs,
     StealthArgs,
     ToolOutcome,
+    UnequipItemArgs,
+    UseItemArgs,
+    item_mechanics,
 )
 from ai_dnd.rag.search import LoreSearcher, SearchHit, format_fragments
 from ai_dnd.rules.actions import Action
@@ -61,6 +66,10 @@ EFFECT_TOOLS = frozenset(
         "move_npc",
         "kill_npc",
         "grant_item",
+        "equip_item",
+        "unequip_item",
+        "use_item",
+        "enhance_item",
         "adjust_resource",
         CURE_WOUNDS_TOOL,
         "note_fact",
@@ -113,6 +122,11 @@ class _PendingOperation:
     keep_refs: frozenset[int] = frozenset()
 
 
+class _SceneNotReachableError(ValueError):
+    """Отдельный тип: недостижимая сцена чинится repair-ом, а при исчерпании бюджета —
+    отказом в мире, но никогда системной ошибкой хода."""
+
+
 @dataclass(slots=True)
 class _PendingTurn:
     inputs: tuple[PlayerInput, ...]
@@ -124,6 +138,7 @@ class _PendingTurn:
     repairs: int = 0
     problem: str = ""
     moved: bool = False
+    unreachable: bool = False
     pending_operation: _PendingOperation | None = None
     narration_text: str | None = None
 
@@ -146,7 +161,7 @@ class GameMaster:
         self._journal = journal
         self._rng = rng
         self._searcher = searcher
-        self._engine = RulesEngine(content.ruleset)
+        self._engine = RulesEngine(content.ruleset, item_mechanics(content.scenario))
         self._tools = DmTools(content, setup, self._engine, rng)
         self._context = ContextBuilder(content, setup)
         self._query_tools = frozenset({LOOKUP_LORE_TOOL}) if searcher is not None else frozenset()
@@ -266,7 +281,10 @@ class GameMaster:
         public_fragments = format_fragments([hit for hit in hits if hit.visibility == "public"])
         while pending.unresolved:
             if pending.planning_calls >= MAX_PLANNING_CALLS:
-                raise LLMError("invalid_turn_decision", "Planning call limit reached")
+                if not pending.unreachable:
+                    raise LLMError("invalid_turn_decision", "Planning call limit reached")
+                self._refuse_travel(pending)
+                break
             pending.planning_calls += 1
             refs = sorted(pending.unresolved)
             message = self._context.decision_message(
@@ -298,6 +316,10 @@ class GameMaster:
                 )
                 self._repair(pending, f"invalid_decision: {problem}")
                 continue
+            except _SceneNotReachableError as error:
+                pending.unreachable = True
+                self._repair_or_refuse(pending, f"invalid_decision: {error}")
+                continue
             except ValueError as error:
                 self._repair(pending, f"invalid_decision: {error}")
                 continue
@@ -315,7 +337,11 @@ class GameMaster:
                     ),
                 )
                 if operation.outcome.failed:
-                    self._repair(pending, self._operation_error(operation))
+                    if operation.outcome.result.get("error") == "scene_not_reachable":
+                        pending.unreachable = True
+                        self._repair_or_refuse(pending, self._operation_error(operation))
+                    else:
+                        self._repair(pending, self._operation_error(operation))
                     continue
                 async for update in self._commit_operation(pending, operation):
                     yield update
@@ -427,6 +453,14 @@ class GameMaster:
                 else:
                     if pending.moved:
                         raise ValueError("scene change already resolved in this turn")
+                    exits = self._scene_exits()
+                    if self._setup.improvisation != "free" and plan.scene_id not in exits:
+                        raise _SceneNotReachableError(
+                            f"scene_not_reachable: '{plan.scene_id}' is not an exit of "
+                            f"'{scene_id}'. Allowed exits: {', '.join(exits)}. "
+                            "Resolve this input as stay or local_move and explain the "
+                            "refusal in-world; do not name unreachable locations."
+                        )
                     scene_moves.append(plan)
             elif plan.scene_id is not None:
                 raise ValueError("scene_id only applies to move")
@@ -459,6 +493,22 @@ class GameMaster:
                     hiding = StealthArgs.model_validate(plan.arguments)
                     if hiding.actor_id != plan.actor_id:
                         raise ValueError("stealth actor must match input actor")
+                if plan.tool_name == "equip_item":
+                    equipping = EquipItemArgs.model_validate(plan.arguments)
+                    if equipping.actor_id != plan.actor_id:
+                        raise ValueError("equip actor must match input actor")
+                if plan.tool_name == "unequip_item":
+                    unequipping = UnequipItemArgs.model_validate(plan.arguments)
+                    if unequipping.actor_id != plan.actor_id:
+                        raise ValueError("unequip actor must match input actor")
+                if plan.tool_name == "use_item":
+                    using = UseItemArgs.model_validate(plan.arguments)
+                    if using.actor_id != plan.actor_id:
+                        raise ValueError("use_item actor must match input actor")
+                if plan.tool_name == "enhance_item":
+                    enhancing = EnhanceItemArgs.model_validate(plan.arguments)
+                    if enhancing.actor_id != plan.actor_id:
+                        raise ValueError("enhance actor must match input actor")
                 if plan.tool_name == "adjust_resource":
                     adjustment = AdjustResourceArgs.model_validate(plan.arguments)
                     if (restriction := adjustment.restriction()) is not None:
@@ -546,6 +596,43 @@ class GameMaster:
         pending.problem = problem[:500]
         if pending.repairs > MAX_REPAIRS:
             raise LLMError("invalid_turn_decision", "Decision validation failed")
+
+    def _scene_exits(self) -> tuple[str, ...]:
+        return next(
+            scene.exits
+            for scene in self._content.scenario.scenes
+            if scene.id == self._state.scene_id
+        )
+
+    def _repair_or_refuse(self, pending: _PendingTurn, problem: str) -> None:
+        try:
+            self._repair(pending, problem)
+        except LLMError:
+            self._refuse_travel(pending)
+
+    @staticmethod
+    def _refuse_travel(pending: _PendingTurn) -> None:
+        # Исчерпанный бюджет repair на недостижимой сцене: ход обязан завершиться
+        # нарративом-отказом в мире, а не системной ошибкой.
+        for ref in sorted(pending.unresolved):
+            pending.completed.append(
+                {
+                    "input_indices": [ref],
+                    "kind": "stay",
+                    "events": [],
+                    "result": {
+                        "instruction": (
+                            "The requested travel is impossible from the current scene: "
+                            "the destination is not among its exits. The party stays here. "
+                            "Explain the refusal in-world (no path, an obstacle, danger) "
+                            "without naming unreachable locations, and point to the "
+                            "reachable exits listed above."
+                        )
+                    },
+                }
+            )
+        pending.unresolved.clear()
+        pending.problem = ""
 
     def _resolve_operation(
         self,

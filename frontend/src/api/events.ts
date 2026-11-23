@@ -12,6 +12,8 @@ export type Difficulty = 'very_easy' | 'easy' | 'medium' | 'hard' | 'very_hard' 
 export type Attitude = 'friendly' | 'neutral' | 'hostile'
 export type RevealedKind = 'clue' | 'handout' | 'item' | 'lore'
 export type TurnSlot = 'action' | 'bonus_action' | 'movement'
+export type ItemSlot = 'weapon' | 'armor' | 'amulet' | 'ring' | 'cloak' | 'other'
+export type ItemUseKind = 'heal' | 'buff' | 'spell'
 
 // --- rules/dice.py: RollResult ---
 
@@ -331,6 +333,44 @@ export interface ItemGranted extends EventBase {
   actor_id: string
   item_id: string | null
   name: string
+  // Отсутствуют в журналах, записанных до подэтапа 4.
+  quantity?: number
+  enhancement?: number
+}
+
+export interface ItemEquipped extends EventBase {
+  type: 'ItemEquipped'
+  actor_id: string
+  item_id: string
+  name: string
+  slot: ItemSlot
+  /** Имя предмета, снятого с этого слота (остаётся в рюкзаке). */
+  replaced: string | null
+}
+
+export interface ItemUnequipped extends EventBase {
+  type: 'ItemUnequipped'
+  actor_id: string
+  item_id: string
+  name: string
+}
+
+export interface ItemUsed extends EventBase {
+  type: 'ItemUsed'
+  actor_id: string
+  item_id: string
+  name: string
+  effect: ItemUseKind
+  rounds: number | null
+  spell: string | null
+}
+
+export interface ItemEnhanced extends EventBase {
+  type: 'ItemEnhanced'
+  actor_id: string
+  item_id: string
+  name: string
+  enhancement: number
 }
 
 export interface FactNoted extends EventBase {
@@ -389,6 +429,10 @@ export type JournalEvent =
   | NpcMoved
   | NpcDied
   | ItemGranted
+  | ItemEquipped
+  | ItemUnequipped
+  | ItemUsed
+  | ItemEnhanced
   | FactNoted
   | ActorsJoined
   | EncounterStarted
@@ -447,6 +491,7 @@ export function isJournalEntry(message: RoomMessage): message is JournalEntry {
 export const STATE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'ActorsJoined', 'ItemGranted', 'SceneChanged', 'Revealed', 'NpcAttitudeChanged', 'NpcMoved',
   'NpcDied',
+  'ItemEquipped', 'ItemUnequipped', 'ItemUsed', 'ItemEnhanced',
   'DamageDealt', 'Healed', 'ActorDied', 'ActorFled', 'ResourceChanged',
   'ConditionApplied', 'ConditionRemoved', 'Rested', 'TimePassed',
   'CombatStarted', 'CombatEnded', 'RoundStarted', 'TurnStarted', 'TurnEnded', 'TurnSlotUsed',

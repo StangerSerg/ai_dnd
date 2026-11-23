@@ -186,7 +186,8 @@
       "host_only": "Only the team leader can manage recruiting",
       "table_full": "No free seats remain at this table",
       "already_seated": "You already have a seat at this table — observing is unavailable",
-      "spectators_full": "Spectator seats are full (limit 20)"
+      "spectators_full": "Spectator seats are full (limit 20)",
+      "class_not_available": "This character's class is not available in the table's scenario"
     },
     "characterEmptyHint": "No characters yet — create your first one to sit at the table.",
     "characterUnavailable": "The characters list is unavailable — try later or paste a character UUID manually.",
@@ -413,6 +414,11 @@
       "stunned": "Stunned",
       "unconscious": "Unconscious"
     },
+    "skills": {
+      "cure_wounds": "Cure Wounds",
+      "stealth": "Stealth",
+      "protect": "Protect"
+    },
     "downed": {
       "bannerTitle": "You are unconscious",
       "bannerHint": "Commands are unavailable, chat stays open; your party can revive you",
@@ -509,6 +515,25 @@
     },
     "events": {
       "itemGranted": "{{actor}} receives: {{name}}",
+      "itemEquipped": "{{actor}} equips: {{name}} ({{slot}})",
+      "itemEquippedSwap": "{{actor}} equips: {{name}} ({{slot}}); {{replaced}} goes back to the backpack",
+      "itemUnequipped": "{{actor}} unequips: {{name}}",
+      "itemUsed": {
+        "heal": "{{actor}} uses: {{name}}",
+        "buff": "{{actor}} uses: {{name}}",
+        "buffRounds": "{{actor}} uses: {{name}} (effect for {{rounds}} round(s))",
+        "spell": "{{actor}} uses: {{name}} — spell “{{spell}}”"
+      },
+      "itemEnhanced": "{{actor}}: {{name}} is enhanced to +{{enhancement}}",
+      "itemSlot": {
+        "weapon": "weapon",
+        "armor": "armor",
+        "amulet": "amulet",
+        "ring": "ring",
+        "cloak": "cloak",
+        "other": "other"
+      },
+      "buffExpired": "The effect of “{{item}}” wears off: {{actor}}",
       "sceneChanged": "The scene changes: {{scene}}",
       "revealed": {
         "clue": "Clue revealed: {{id}}",
@@ -654,7 +679,8 @@
       "fighter": "Fighter",
       "rogue": "Rogue",
       "cleric": "Cleric",
-      "ranger": "Ranger"
+      "ranger": "Ranger",
+      "scenarioHint": "The table's scenario limits the choice: only available classes are shown."
     },
     "race": {
       "label": "Race",

@@ -10,7 +10,8 @@ from pathlib import Path
 import yaml
 
 from ai_dnd.importer.pipeline import ImportResult
-from ai_dnd.scenarios.schemas import Scenario
+from ai_dnd.rules.ruleset import Effect
+from ai_dnd.scenarios.schemas import Item, ItemBuff, ItemHeal, ItemSpell, Scenario
 
 _KIND_LABELS = {"assumption": "Допущение", "question": "Вопрос", "missing": "Не хватает данных"}
 
@@ -27,6 +28,86 @@ def entity_counts(scenario: Scenario) -> dict[str, int]:
         "lore": len(scenario.lore),
         "statblocks": len(scenario.statblocks),
     }
+
+
+def _effect_label(effect: Effect) -> str:
+    """Эффект одной строкой: «checks(athletics) +2», «saves advantage», «attacks +1»."""
+    target = str(effect.applies_to)
+    if effect.only:
+        target += "(" + ", ".join(effect.only) + ")"
+    parts = []
+    if effect.mode is not None:
+        parts.append(str(effect.mode))
+    if effect.bonus:
+        parts.append(f"{effect.bonus:+d}")
+    if effect.auto_fail:
+        parts.append("автопровал")
+    return " ".join([target, *parts])
+
+
+def item_recognized_props(item: Item) -> list[str]:
+    """Распознанные механические свойства предмета — как их видит автор в отчёте."""
+    props = []
+    if item.kind is not None:
+        props.append(f"тип {item.kind}")
+    if item.slot is not None:
+        props.append(f"слот {item.slot}")
+    if item.quantity != 1:
+        props.append(f"количество {item.quantity}")
+    if item.enhancement:
+        props.append(f"заточка +{item.enhancement}")
+    if item.ac_bonus:
+        props.append(f"AC {item.ac_bonus:+d}")
+    if item.damage_bonus:
+        props.append(f"урон {item.damage_bonus:+d}")
+    if item.damage_type is not None:
+        props.append(f"тип урона {item.damage_type}")
+    props.extend(f"модификатор {_effect_label(effect)}" for effect in item.modifiers)
+    use = item.consumable_effect
+    if isinstance(use, ItemHeal):
+        props.append(f"лечение {use.amount}")
+    elif isinstance(use, ItemBuff):
+        effects = "; ".join(_effect_label(effect) for effect in use.effects)
+        duration = f"на {use.rounds} раундов" if use.rounds is not None else "до снятия"
+        props.append(f"баф ({duration}): {effects}")
+    elif isinstance(use, ItemSpell):
+        props.append(f"заклинание «{use.spell}»")
+    return props
+
+
+def _item_property_lines(result: ImportResult) -> list[str]:
+    """Секция «распознано / под вопросом»: свойства из черновика + заметки и issues по предмету."""
+    scenario = result.draft.scenario
+    if not scenario.items:
+        return ["предметов нет"]
+    lines: list[str] = []
+    narrative = 0
+    for item in scenario.items:
+        prefix = f"items.{item.id}"
+        notes = [
+            note
+            for note in result.draft.notes
+            if note.path == prefix or note.path.startswith(f"{prefix}.")
+        ]
+        issues = [
+            issue
+            for issue in result.issues
+            if issue.path == prefix or issue.path.startswith(f"{prefix}.")
+        ]
+        props = item_recognized_props(item)
+        if not props and not notes and not issues:
+            narrative += 1
+            continue
+        recognized = "; ".join(props) if props else "механика не распознана"
+        lines.append(f"- {item.id} — {item.name}: распознано: {recognized}")
+        for note in notes:
+            label = _KIND_LABELS[note.kind].lower()
+            lines.append(f"  - под вопросом ({label}) `{note.path}`: {note.text}")
+        for issue in issues:
+            lines.append(f"  - под вопросом (валидация): {issue}")
+    if narrative:
+        lines.append(f"- нарративных предметов без механики: {narrative}")
+    return lines
 
 
 def render_report(result: ImportResult, *, source_name: str, language: str) -> str:
@@ -48,6 +129,8 @@ def render_report(result: ImportResult, *, source_name: str, language: str) -> s
         lines.extend(f"- {issue}" for issue in result.issues)
     else:
         lines.append("ссылок-проблем нет")
+    lines.extend(["", "## Свойства предметов", ""])
+    lines.extend(_item_property_lines(result))
     lines.extend(["", "## Заметки модели", ""])
     if result.draft.notes:
         for kind, label in _KIND_LABELS.items():

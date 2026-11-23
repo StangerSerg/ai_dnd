@@ -10,7 +10,7 @@ from collections.abc import Iterable
 
 from ai_dnd.i18n import localize
 from ai_dnd.rules.ruleset import Ruleset
-from ai_dnd.scenarios.schemas import Bestiary
+from ai_dnd.scenarios.schemas import MAX_ITEM_ENHANCEMENT, Bestiary
 
 IMPORT_MARKER = "You are the scenario importer."
 
@@ -51,6 +51,29 @@ def import_system_prompt(language: str) -> str:
         "complete numbers (ac, hp, checks bonuses, attacks with dice damage) using only "
         "the listed check/save/damage type ids, and record an assumption note. Never "
         "reference a library monster that is not in the list.\n"
+        "- Item mechanics are optional: an item without stated mechanics stays narrative "
+        "(leave kind, slot, modifiers and other mechanical fields unset). When the module "
+        "states or clearly implies mechanics, recognize them into the item fields:\n"
+        "  - kind: weapon | armor | wearable | consumable | other; slot: weapon | armor | "
+        "amulet | ring | cloak | other; quantity >= 1 for stacks.\n"
+        f"  - A magic '+N to attack and damage' weapon bonus is enhancement=N "
+        f"(0..{MAX_ITEM_ENHANCEMENT}); do not duplicate it in modifiers or damage_bonus. "
+        "Other flat bonuses go to ac_bonus (AC) and damage_bonus (damage).\n"
+        "  - Elemental weapon damage: damage_type, only an id from the ruleset damage types.\n"
+        "  - modifiers: Effect objects {applies_to: checks|saves|attacks|attacks_against, "
+        "only: [ids], mode: advantage|disadvantage|null, bonus: int, auto_fail: bool}. "
+        "'only' lists ruleset check ids (for checks) or save ids (for saves) and must be "
+        "empty for attacks; auto_fail is forbidden on attacks; every effect needs a mode, "
+        "a non-zero bonus or auto_fail.\n"
+        "  - kind consumable requires consumable_effect: {type: heal, amount: dice formula "
+        "like 2d4+2} for healing, {type: buff, effects: [Effect, ...], rounds: int|null} for "
+        "temporary buffs (null = until removed), or {type: spell, spell: spell name} for "
+        "scrolls (the spell is a narrative reference, there is no spell registry).\n"
+        "  - Report recognition per item via notes: an 'assumption' note at items.<id> when "
+        "a mechanical value was inferred rather than stated, a 'question' note at "
+        "items.<id>.<field> when the description is ambiguous or incomplete (e.g. extra "
+        "damage dice mentioned but not given). Keep the item and your best-guess values; "
+        "the author reviews them in the import report.\n"
         "- If required data is missing from the module, fill the minimal reasonable value "
         "and record a 'missing' note; if the text is ambiguous, record a 'question' note. "
         "Notes: path points at the entity or field (e.g. scenes.crypt.checks.listen), "

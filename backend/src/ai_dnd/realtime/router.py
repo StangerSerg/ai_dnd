@@ -254,12 +254,18 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
             if row is None:
                 raise HTTPException(404, {"code": "invalid_invite"})
             title: str | None = None
+            available_classes: list[str] = []
             if row.scenario_version_id is not None:
-                title = await db.scalar(
-                    select(ScenarioRow.title)
-                    .join(ScenarioVersionRow, ScenarioVersionRow.scenario_id == ScenarioRow.id)
-                    .where(ScenarioVersionRow.id == row.scenario_version_id)
-                )
+                version = (
+                    await db.execute(
+                        select(ScenarioRow.title, ScenarioVersionRow.info)
+                        .join(ScenarioVersionRow, ScenarioVersionRow.scenario_id == ScenarioRow.id)
+                        .where(ScenarioVersionRow.id == row.scenario_version_id)
+                    )
+                ).first()
+                if version is not None:
+                    title, info = version
+                    available_classes = list(info.get("available_classes") or [])
             host_name: str | None = None
             if row.host_id is not None:
                 host_name = await db.scalar(
@@ -282,6 +288,7 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
                 seat.character_id for seat in players if seat.character_id is not None
             ],
             host_name=host_name,
+            available_classes=available_classes,
         )
 
     @router.get("/open-tables", response_model=list[OpenTableItem])

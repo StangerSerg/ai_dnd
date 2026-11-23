@@ -111,6 +111,8 @@ def seat_info(
         muted=seat.muted,
         mute_source=seat.mute_source,
         dice_style=dice_style,
+        skills=list(player.skills) if player is not None else [],
+        cure_wounds=player.cure_wounds if player is not None else None,
     )
 
 
@@ -289,6 +291,10 @@ async def join_session(
             raise SessionError(409, "template_mismatch") from error
         except SheetValuesError as error:
             raise SessionError(422, "character_invalid") from error
+        # Сценарный блок «доступные классы»: пусто — все классы (обратная совместимость).
+        available = content.scenario.scenario.available_classes
+        if available and character_data.class_id not in available:
+            raise SessionError(422, "class_not_available")
         actor_id = f"pc_{character.id.hex}"
         if setup.seat(actor_id) is not None:
             raise SessionError(409, "character_taken")

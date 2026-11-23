@@ -1467,6 +1467,26 @@ export interface components {
             /** Token */
             token: string;
         };
+        /**
+         * CureWoundsCapability
+         * @description Параметры заклинания на момент создания сессии; строится из скилла kind=heal.
+         */
+        CureWoundsCapability: {
+            /**
+             * Spell Id
+             * @enum {string}
+             */
+            spell_id: "cure_wounds";
+            /** Prepared */
+            prepared: boolean;
+            /**
+             * Disciple Of Life
+             * @default false
+             */
+            disciple_of_life: boolean;
+            /** Spellcasting Modifier */
+            spellcasting_modifier: number;
+        };
         /** DayExpense */
         DayExpense: {
             /**
@@ -1917,6 +1937,9 @@ export interface components {
              * @default amber
              */
             dice_style: string;
+            /** Skills */
+            skills?: string[];
+            cure_wounds?: components["schemas"]["CureWoundsCapability"] | null;
         };
         /** SessionDetail */
         SessionDetail: {
@@ -2044,6 +2067,8 @@ export interface components {
             taken_character_ids?: string[];
             /** Host Name */
             host_name?: string | null;
+            /** Available Classes */
+            available_classes?: string[];
         };
         /** SessionResponse */
         SessionResponse: {

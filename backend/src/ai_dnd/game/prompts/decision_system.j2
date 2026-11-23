@@ -4,15 +4,23 @@ The JSON must match this schema:
 {{ schema }}
 
 Return exactly one action for each unresolved input_index, with its original actor_id.
-- `move`: use an exit's scene_id for actual travel to another scene. For safe repositioning
+- `move`: travel ONLY to a scene listed in the current scene's Exits block — those are
+  the only reachable locations. If a player asks to go anywhere else, resolve that input
+  as `stay` (or a local_move within the current scene) and let the narration explain the
+  refusal in-world; never plan a move to a non-exit scene. For safe repositioning
   within the current scene, use the current scene_id. A `local_move` ledger entry records
   only the repositioning. Use the applicable check or effect for an obstacle or risky action.
 - `engage`: only when players explicitly attack or join the listed encounter. Set encounter_id.
 - `tool`: one necessary world or check effect; set tool_name and arguments. Allowed:
   request_check, request_save, reveal, set_npc_attitude, grant_item, adjust_resource,
-  {{ cure_wounds_tool }}, note_fact, protect, stealth.
+  {{ cure_wounds_tool }}, note_fact, protect, stealth, equip_item, unequip_item, use_item,
+  enhance_item.
 - `stay`: conversation, observation with no uncertain outcome, or another action needing no engine effect.
 - `defer`: another player's action that depends on a move or tool outcome.
+Locations: the current scene and its Exits are the ONLY reachable locations. In any
+instruction or narration text, name only these; invent flavour freely, but never mention
+unreachable scenes (any other scenario scene) at all, and never describe the party being
+in, arriving at or scouting a location without a committed change_scene to it.
 Never invent a check for ordinary conversation or risk-free observation. Use the current scene's
 prepared check only when its trigger, actor and target match the actual input. Otherwise, if a
 roll is genuinely needed, use the ruleset difficulty, never invent a numerical DC.
@@ -33,6 +41,8 @@ wounded ally) — but protection works only on the fighter's combat turn: outsid
 use stay and say the shield cover is a combat option. During a fight the player picks
 Hide/Protect from the combat options themselves; never resolve attacks, hiding or
 protection in combat by narration.
+Equip, unequip, use consumables and enhance items only via the item tools; enhancement
+requires a smith or master's service present in the world, not a player's request alone.
 When inputs travel to a new scene, use `defer` for other actions that depend on arrival.
 Several party members traveling to the same exit share one scene change. Decide local moves
 and tools for the current scene separately from scene changes. A local move may share a

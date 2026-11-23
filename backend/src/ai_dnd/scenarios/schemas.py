@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from ai_dnd.i18n import LanguageCode, LocalizedText
 from ai_dnd.rules.dice import DiceNotation
-from ai_dnd.rules.ruleset import Difficulty, RulesetRef
+from ai_dnd.rules.ruleset import Difficulty, Effect, RulesetRef
 from ai_dnd.rules.state import Tactics
 from ai_dnd.sheets.schemas import TemplateRef
 
@@ -94,6 +94,9 @@ class ScenarioInfo(_Model):
     synopsis: _Text
     # Тон и манера повествования.
     tone: _Text | None = None
+    # Классы, доступные персонажам сценария: id из content/classes.yaml.
+    # Пусто (в том числе в старых YAML без блока) — доступны все классы.
+    available_classes: tuple[EntityId, ...] = ()
 
 
 class CheckResult(_Model):
@@ -151,11 +154,60 @@ class Npc(_Model):
     statblock: StatblockRef | None = None
 
 
+# Предел степени заточки; runtime-заточка (подэтап 4) использует ту же константу.
+MAX_ITEM_ENHANCEMENT = 3
+
+ItemKind = Literal["weapon", "armor", "wearable", "consumable", "other"]
+ItemSlot = Literal["weapon", "armor", "amulet", "ring", "cloak", "other"]
+
+
+class ItemHeal(_Model):
+    """Лечение при использовании: формула как в HealAction.amount («2d4+2»)."""
+
+    type: Literal["heal"]
+    amount: DiceNotation
+
+
+class ItemBuff(_Model):
+    """Временные модификаторы. Длительность в раундах; None — пока не снимет ведущий."""
+
+    type: Literal["buff"]
+    effects: tuple[Effect, ...] = Field(min_length=1)
+    rounds: Annotated[int, Field(ge=1)] | None = None
+
+
+class ItemSpell(_Model):
+    """Свиток. Реестра заклинаний в проекте нет, поэтому ссылка нарративная:
+    название заклинания текстом, каст разбирает ведущий (подэтап 4)."""
+
+    type: Literal["spell"]
+    spell: _Line
+
+
+ItemUseEffect = Annotated[ItemHeal | ItemBuff | ItemSpell, Field(discriminator="type")]
+
+
 class Item(_Model):
+    """Предмет сценария. Механика опциональна: без неё предмет остаётся нарративным."""
+
     id: EntityId
     name: _Line
     description: _Text | None = None
     visibility: ContentVisibility = "public"
+    kind: ItemKind | None = None
+    slot: ItemSlot | None = None
+    quantity: Annotated[int, Field(ge=1)] = 1
+    # Движок применяет эти эффекты как есть (решение 18.11): проверки, спасброски, атаки.
+    modifiers: tuple[Effect, ...] = ()
+    # AC и плоский урон — не броски, Effect их не выражает: отдельные скаляры.
+    ac_bonus: int = 0
+    damage_bonus: int = 0
+    # Стихийный урон оружия: id типа урона из набора правил.
+    damage_type: EntityId | None = None
+    # Заточка +N: бонус к атаке и урону равен степени. Лимит проверяет валидатор,
+    # чтобы превышение попало в issues-отчёт, а не в ошибку схемы.
+    enhancement: Annotated[int, Field(ge=0)] = 0
+    consumable_effect: ItemUseEffect | None = None
 
 
 class Clue(_Model):

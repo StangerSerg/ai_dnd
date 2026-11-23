@@ -264,3 +264,8 @@
 .dice-style-picker .dice-illustration { width: 100%; animation: none; }
 @media (max-width: 480px) { .dice-style-picker.codex-demo { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { .dice-style-picker .dice-style-option { transition: none; } }
+
+/* Бейджи скиллов класса в карточке персонажа (v0.2 подэтап 2): справочная
+   витрина, палитра карточки из demo.css (золото #c3a779, рамка --line). */
+.character-card .skill-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.character-card .skill-badge { border: 1px solid var(--line, rgba(195, 163, 109, .28)); border-radius: 999px; padding: 3px 10px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #c3a779; }

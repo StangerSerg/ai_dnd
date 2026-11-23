@@ -45,8 +45,12 @@ def load_game_content(content_dir: Path, scenario: str, language: str) -> GameCo
     template = load_template(
         content_dir / "sheets" / f"{_ref_id(preview.scenario.sheet_template)}.json"
     )
+    # Валидация строгая, но только для библиотек того же набора правил, что у сценария:
+    # глобальная SRD-бестиария не должна ломать загрузку не-SRD сценария.
     bestiaries = tuple(
-        load_bestiary(item, ruleset) for item in sorted((content_dir / "bestiary").glob("*.yaml"))
+        load_bestiary(path, ruleset)
+        for path in sorted((content_dir / "bestiary").glob("*.yaml"))
+        if read_yaml(path).get("ruleset") == ruleset.ref
     )
     classes, skills = load_classes_and_skills(content_dir)
     return GameContent(

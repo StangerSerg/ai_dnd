@@ -24,7 +24,30 @@ function entryText(entry: JournalEntry, t: TFunction, nameOf: NameOf): { label: 
     case 'ItemGranted': {
       const event = eventOf(entry, 'ItemGranted')
       if (!event) break
-      return { label: t('game:feed.item'), text: t('game:events.itemGranted', { name: event.name, actor: nameOf(event.actor_id) }) }
+      const suffix = (event.enhancement ? ` +${event.enhancement}` : '') + ((event.quantity ?? 1) > 1 ? ` ×${event.quantity}` : '')
+      return { label: t('game:feed.item'), text: t('game:events.itemGranted', { name: event.name + suffix, actor: nameOf(event.actor_id) }) }
+    }
+    case 'ItemEquipped': {
+      const event = eventOf(entry, 'ItemEquipped')
+      if (!event) break
+      const key = event.replaced ? 'itemEquippedSwap' : 'itemEquipped'
+      return { label: t('game:feed.item'), text: t(`game:events.${key}`, { name: event.name, actor: nameOf(event.actor_id), slot: t(`game:events.itemSlot.${event.slot}`), replaced: event.replaced ?? '' }) }
+    }
+    case 'ItemUnequipped': {
+      const event = eventOf(entry, 'ItemUnequipped')
+      if (!event) break
+      return { label: t('game:feed.item'), text: t('game:events.itemUnequipped', { name: event.name, actor: nameOf(event.actor_id) }) }
+    }
+    case 'ItemUsed': {
+      const event = eventOf(entry, 'ItemUsed')
+      if (!event) break
+      const key = event.effect === 'buff' && event.rounds !== null ? 'buffRounds' : event.effect
+      return { label: t('game:feed.item'), text: t(`game:events.itemUsed.${key}`, { name: event.name, actor: nameOf(event.actor_id), rounds: event.rounds ?? '', spell: event.spell ?? '' }) }
+    }
+    case 'ItemEnhanced': {
+      const event = eventOf(entry, 'ItemEnhanced')
+      if (!event) break
+      return { label: t('game:feed.item'), text: t('game:events.itemEnhanced', { name: event.name, actor: nameOf(event.actor_id), enhancement: event.enhancement }) }
     }
     case 'SceneChanged': {
       const event = eventOf(entry, 'SceneChanged')
@@ -170,6 +193,9 @@ function entryText(entry: JournalEntry, t: TFunction, nameOf: NameOf): { label: 
     case 'ConditionRemoved': {
       const event = eventOf(entry, 'ConditionRemoved')
       if (!event) break
+      if (event.condition.startsWith('buff:')) {
+        return { label: t('game:feed.condition'), text: t('game:events.buffExpired', { actor: nameOf(event.actor_id), item: event.condition.slice(5) }) }
+      }
       return { label: t('game:feed.condition'), text: t('game:events.conditionRemoved', { actor: nameOf(event.actor_id), condition: event.condition }) }
     }
     case 'TimePassed': {

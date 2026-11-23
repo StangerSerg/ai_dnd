@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from ai_dnd.rules.events import Event as RulesEvent
 from ai_dnd.rules.state import Actor
 from ai_dnd.rules.visibility import DM, PUBLIC, Visibility
+from ai_dnd.scenarios.schemas import ItemSlot
 
 Attitude = Literal["friendly", "neutral", "hostile"]
 RevealedKind = Literal["clue", "handout", "item", "lore"]
@@ -83,6 +84,54 @@ class ItemGranted(GameEventBase):
     # Предмет из сценария или придуманный ведущим — тогда id нет.
     item_id: str | None
     name: str
+    # Механические свойства на момент выдачи: журнал самодостаточен для replay.
+    quantity: int = 1
+    enhancement: int = 0
+
+
+class ItemEquipped(GameEventBase):
+    """Предмет надет в слот. ``replaced`` — имя предмета, снятого с того же слота."""
+
+    type: Literal["ItemEquipped"] = "ItemEquipped"
+    actor_id: str
+    item_id: str
+    name: str
+    slot: ItemSlot
+    replaced: str | None = None
+
+
+class ItemUnequipped(GameEventBase):
+    type: Literal["ItemUnequipped"] = "ItemUnequipped"
+    actor_id: str
+    item_id: str
+    name: str
+
+
+class ItemUsed(GameEventBase):
+    """Одноразовый предмет израсходован (−1 к количеству).
+
+    Лечение и баф применяются отдельными событиями/состояниями движка; здесь — факт
+    расхода. ``rounds`` — длительность бафа (None — пока не снимут), ``spell`` —
+    нарративная ссылка свитка.
+    """
+
+    type: Literal["ItemUsed"] = "ItemUsed"
+    actor_id: str
+    item_id: str
+    name: str
+    effect: Literal["heal", "buff", "spell"]
+    rounds: int | None = None
+    spell: str | None = None
+
+
+class ItemEnhanced(GameEventBase):
+    """Заточка предмета до новой степени (+N к атаке и урону оружием)."""
+
+    type: Literal["ItemEnhanced"] = "ItemEnhanced"
+    actor_id: str
+    item_id: str
+    name: str
+    enhancement: int
 
 
 class FactNoted(GameEventBase):
@@ -136,6 +185,10 @@ GameEvent = Annotated[
     | NpcMoved
     | NpcDied
     | ItemGranted
+    | ItemEquipped
+    | ItemUnequipped
+    | ItemUsed
+    | ItemEnhanced
     | FactNoted
     | ActorsJoined
     | EncounterStarted

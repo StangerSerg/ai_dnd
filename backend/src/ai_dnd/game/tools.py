@@ -23,7 +23,11 @@ from ai_dnd.game.events import (
     Attitude,
     EncounterStarted,
     FactNoted,
+    ItemEnhanced,
+    ItemEquipped,
     ItemGranted,
+    ItemUnequipped,
+    ItemUsed,
     JournalEvent,
     NpcAttitudeChanged,
     NpcDied,
@@ -33,7 +37,7 @@ from ai_dnd.game.events import (
     SceneChanged,
 )
 from ai_dnd.game.presence import effective_location
-from ai_dnd.game.session import SessionSetup, SessionState, apply_events
+from ai_dnd.game.session import InventoryItem, SessionSetup, SessionState, apply_events
 from ai_dnd.game.spells import CURE_WOUNDS_TOOL, FIRST_LEVEL_SLOT, SPELL_SLOT_PREFIX
 from ai_dnd.i18n import localize
 from ai_dnd.rules.actions import (
@@ -48,13 +52,22 @@ from ai_dnd.rules.actions import (
     StartCombatAction,
 )
 from ai_dnd.rules.combat import allies_of, incapacitated_by
-from ai_dnd.rules.engine import RulesEngine
+from ai_dnd.rules.engine import ItemMechanics, RulesEngine, buff_condition_id, item_condition_id
 from ai_dnd.rules.errors import RulesError
 from ai_dnd.rules.events import CheckResolved, ConditionRemoved, DiceRolled, Healed
 from ai_dnd.rules.rng import Rng
 from ai_dnd.rules.ruleset import Difficulty
 from ai_dnd.rules.state import HIT_POINTS
-from ai_dnd.scenarios.schemas import Scene, SceneCheck
+from ai_dnd.scenarios.schemas import (
+    MAX_ITEM_ENHANCEMENT,
+    Item,
+    ItemBuff,
+    ItemHeal,
+    ItemSpell,
+    Scenario,
+    Scene,
+    SceneCheck,
+)
 
 MAX_FACT_LENGTH = 300
 
@@ -145,6 +158,26 @@ class GrantItemArgs(_Args):
     name: str | None = Field(
         default=None, description="Name of an improvised minor item, when there is no item_id."
     )
+
+
+class EquipItemArgs(_Args):
+    actor_id: str = Field(description="Id of the character who puts the item on (its owner).")
+    item_id: str = Field(description="Id of a scenario item in that character's inventory.")
+
+
+class UnequipItemArgs(_Args):
+    actor_id: str = Field(description="Id of the character who takes the item off (its owner).")
+    item_id: str = Field(description="Id of the equipped scenario item.")
+
+
+class UseItemArgs(_Args):
+    actor_id: str = Field(description="Id of the character who uses the item (its owner).")
+    item_id: str = Field(description="Id of a consumable scenario item in their inventory.")
+
+
+class EnhanceItemArgs(_Args):
+    actor_id: str = Field(description="Id of the character whose weapon is enhanced (its owner).")
+    item_id: str = Field(description="Id of the scenario weapon in their inventory or equipped.")
 
 
 class AdjustResourceArgs(_Args):
@@ -505,7 +538,15 @@ class DmTools:
                 raise ToolCallError("item_not_in_scene", allowed=list(self._scene(state).items))
             if not state.is_revealed(item.id):
                 events.append(Revealed(entity_id=item.id, kind="item"))
-            events.append(ItemGranted(actor_id=actor, item_id=item.id, name=item.name))
+            events.append(
+                ItemGranted(
+                    actor_id=actor,
+                    item_id=item.id,
+                    name=item.name,
+                    quantity=item.quantity,
+                    enhancement=item.enhancement,
+                )
+            )
             name = item.name
         elif args.name:
             if improvisation == "strict":
@@ -515,6 +556,125 @@ class DmTools:
         else:
             raise ToolCallError("item_id_or_name_required")
         return ToolOutcome(events=events, result={"granted": name, "to": actor})
+
+    # --- Экипировка и одноразовые ---
+
+    def equip_item(self, state: SessionState, args: EquipItemArgs) -> ToolOutcome:
+        actor = self._actor(state, args.actor_id, party_only=True)
+        entry = self._owned_item(state, actor, args.item_id)
+        item = self._scenario_item(args.item_id)
+        if item.slot is None:
+            raise ToolCallError("item_has_no_slot", item=item.id)
+        worn = state.equipment.get(actor, {})
+        if worn.get(item.id) == item.slot:
+            return ToolOutcome(result={"already_equipped": entry.name})
+        replaced = None
+        if item.slot != "other":
+            replaced_id = next((other for other, slot in worn.items() if slot == item.slot), None)
+            if replaced_id is not None:
+                replaced = self._owned_item(state, actor, replaced_id).name
+        events: list[JournalEvent] = [
+            ItemEquipped(
+                actor_id=actor,
+                item_id=item.id,
+                name=entry.name,
+                slot=item.slot,
+                replaced=replaced,
+            )
+        ]
+        result: dict[str, Any] = {"equipped": entry.name, "slot": item.slot, "to": actor}
+        if replaced is not None:
+            result["stowed"] = replaced
+        result["instruction"] = (
+            "Narrate putting the item on. Its bonuses now apply through the engine; "
+            "the replaced item (if any) is back in the inventory."
+        )
+        return ToolOutcome(events=events, result=result)
+
+    def unequip_item(self, state: SessionState, args: UnequipItemArgs) -> ToolOutcome:
+        actor = self._actor(state, args.actor_id, party_only=True)
+        entry = self._owned_item(state, actor, args.item_id)
+        if args.item_id not in state.equipment.get(actor, {}):
+            raise ToolCallError(
+                "item_not_equipped", equipped=sorted(state.equipment.get(actor, {}))
+            )
+        return ToolOutcome(
+            events=[ItemUnequipped(actor_id=actor, item_id=args.item_id, name=entry.name)],
+            result={
+                "unequipped": entry.name,
+                "instruction": "Narrate taking it off; its bonuses no longer apply.",
+            },
+        )
+
+    def use_item(self, state: SessionState, args: UseItemArgs) -> ToolOutcome:
+        actor = self._actor(state, args.actor_id, party_only=True)
+        entry = self._owned_item(state, actor, args.item_id)
+        item = self._scenario_item(args.item_id)
+        effect = item.consumable_effect
+        if effect is None:
+            raise ToolCallError("item_not_consumable", item=item.id)
+        used = ItemUsed(
+            actor_id=actor,
+            item_id=item.id,
+            name=entry.name,
+            effect=effect.type,
+            rounds=effect.rounds if isinstance(effect, ItemBuff) else None,
+            spell=effect.spell if isinstance(effect, ItemSpell) else None,
+        )
+        events: list[JournalEvent] = [used]
+        result: dict[str, Any] = {
+            "used": entry.name,
+            "by": actor,
+            "remaining": entry.quantity - 1,
+        }
+        if isinstance(effect, ItemHeal):
+            heal = HealAction(target_id=actor, source_id=actor, amount=effect.amount)
+            healing = self._engine.resolve(state.rules, heal, self._rng)
+            events.extend(healing)
+            healed = next(event for event in healing if isinstance(event, Healed))
+            result["healed"] = healed.amount
+            result["hp_after"] = healed.hp_after
+            result["instruction"] = "Narrate using the item and the healed amount as is."
+        elif isinstance(effect, ItemBuff):
+            result["buff_rounds"] = effect.rounds
+            result["instruction"] = (
+                "Narrate the temporary effect; the engine applies its modifiers for the "
+                "duration. Do not roll or adjust anything yourself."
+            )
+        else:
+            result["spell"] = effect.spell
+            result["instruction"] = (
+                "The scroll is spent. Narrate the casting and resolve the spell's effects "
+                "with the usual tools (checks, saves, damage); there is no spell engine."
+            )
+        return ToolOutcome(events=events, result=result)
+
+    def enhance_item(self, state: SessionState, args: EnhanceItemArgs) -> ToolOutcome:
+        actor = self._actor(state, args.actor_id, party_only=True)
+        entry = self._owned_item(state, actor, args.item_id)
+        item = self._scenario_item(args.item_id)
+        if item.slot != "weapon":
+            raise ToolCallError("not_a_weapon", item=item.id)
+        if entry.enhancement >= MAX_ITEM_ENHANCEMENT:
+            raise ToolCallError(
+                "enhancement_limit_reached", current=entry.enhancement, limit=MAX_ITEM_ENHANCEMENT
+            )
+        enhancement = entry.enhancement + 1
+        return ToolOutcome(
+            events=[
+                ItemEnhanced(
+                    actor_id=actor, item_id=item.id, name=entry.name, enhancement=enhancement
+                )
+            ],
+            result={
+                "item": entry.name,
+                "enhancement": enhancement,
+                "instruction": (
+                    "Narrate the smith's work. The weapon now gives its enhancement bonus "
+                    "to attack and damage through the engine."
+                ),
+            },
+        )
 
     def adjust_resource(self, state: SessionState, args: AdjustResourceArgs) -> ToolOutcome:
         if (restriction := args.restriction()) is not None:
@@ -670,6 +830,23 @@ class DmTools:
     def _scene(self, state: SessionState) -> Scene:
         return next(scene for scene in self._content.scenario.scenes if scene.id == state.scene_id)
 
+    def _owned_item(self, state: SessionState, actor_id: str, item_id: str) -> InventoryItem:
+        entry = next(
+            (item for item in state.inventory.get(actor_id, ()) if item.item_id == item_id), None
+        )
+        if entry is None:
+            raise ToolCallError(
+                "item_not_in_inventory",
+                allowed=[item.item_id for item in state.inventory.get(actor_id, ())],
+            )
+        return entry
+
+    def _scenario_item(self, item_id: str) -> Item:
+        item = next((item for item in self._content.scenario.items if item.id == item_id), None)
+        if item is None:
+            raise ToolCallError("unknown_item")
+        return item
+
     def _scene_check(self, state: SessionState, check_id: str) -> SceneCheck:
         scene = self._scene(state)
         check = next((item for item in scene.checks if item.id == check_id), None)
@@ -710,6 +887,30 @@ class DmTools:
 
 def _error(code: str, **details: object) -> ToolOutcome:
     return ToolOutcome(result={"error": code, **details})
+
+
+def item_mechanics(scenario: Scenario) -> dict[str, ItemMechanics]:
+    """Карта механики предметов для движка: ключи — id состояний экипировки и бафов.
+
+    Заточка меняется в игре, поэтому записи заранее есть для каждой степени 0..MAX;
+    движок берёт степень из id состояния актёра, а не из пересчёта карточки.
+    """
+    mechanics: dict[str, ItemMechanics] = {}
+    for item in scenario.items:
+        if item.slot is not None:
+            for enhancement in range(MAX_ITEM_ENHANCEMENT + 1):
+                mechanics[item_condition_id(item.id, enhancement)] = ItemMechanics(
+                    effects=item.modifiers,
+                    ac_bonus=item.ac_bonus,
+                    damage_bonus=item.damage_bonus,
+                    weapon=item.slot == "weapon",
+                    enhancement=enhancement,
+                )
+        if isinstance(item.consumable_effect, ItemBuff):
+            mechanics[buff_condition_id(item.id)] = ItemMechanics(
+                effects=item.consumable_effect.effects
+            )
+    return mechanics
 
 
 def tool_result_text(outcome: ToolOutcome) -> str:
@@ -784,6 +985,40 @@ _TOOLS: tuple[_Tool, ...] = (
         "improvised item by name.",
         GrantItemArgs,
         DmTools.grant_item,
+    ),
+    _Tool(
+        "equip_item",
+        "Put a scenario item from the character's own inventory into its equipment slot "
+        "(weapon, armor, amulet, ring, cloak, other). The engine applies its modifiers; "
+        "an item already in that slot is stowed back into the inventory. Only the owner "
+        "can equip their item; improvised items without a slot cannot be equipped.",
+        EquipItemArgs,
+        DmTools.equip_item,
+    ),
+    _Tool(
+        "unequip_item",
+        "Take an equipped item off: its modifiers stop applying and it stays in the "
+        "inventory. Only the owner can unequip their item.",
+        UnequipItemArgs,
+        DmTools.unequip_item,
+    ),
+    _Tool(
+        "use_item",
+        "Use a consumable scenario item from the character's own inventory: a potion "
+        "heals them, an elixir applies a temporary buff, a scroll is spent and its spell "
+        "is cast (resolve the spell's effects with the usual tools). One unit is consumed; "
+        "an item they do not own or have already used up cannot be used.",
+        UseItemArgs,
+        DmTools.use_item,
+    ),
+    _Tool(
+        "enhance_item",
+        "Sharpen a scenario weapon the character owns by one step (+1 to attack and "
+        "damage, up to +3). Requires an in-world service — a smith or master who does "
+        "the work; never enhance a weapon out of thin air or just because a player asks. "
+        "If the service has a price, charge it with adjust_resource (gp) in the same turn.",
+        EnhanceItemArgs,
+        DmTools.enhance_item,
     ),
     _Tool(
         "adjust_resource",

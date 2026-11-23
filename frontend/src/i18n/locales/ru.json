@@ -186,7 +186,8 @@
       "host_only": "Управлять набором может только лидер команды",
       "table_full": "За этим столом не осталось свободных мест",
       "already_seated": "Вы уже сидите за этим столом — наблюдение недоступно",
-      "spectators_full": "Зрительские места заполнены (лимит 20)"
+      "spectators_full": "Зрительские места заполнены (лимит 20)",
+      "class_not_available": "Класс персонажа недоступен в сценарии этого стола"
     },
     "characterEmptyHint": "Персонажей пока нет — создайте первого, чтобы сесть за стол.",
     "characterUnavailable": "Список персонажей недоступен — попробуйте позже или введите UUID персонажа вручную.",
@@ -413,6 +414,11 @@
       "stunned": "Оглушён",
       "unconscious": "Без сознания"
     },
+    "skills": {
+      "cure_wounds": "Лечение ран",
+      "stealth": "Скрытность",
+      "protect": "Защита"
+    },
     "downed": {
       "bannerTitle": "Вы без сознания",
       "bannerHint": "Команды недоступны, чат открыт; отряд может поднять вас",
@@ -509,6 +515,25 @@
     },
     "events": {
       "itemGranted": "{{actor}} получает: {{name}}",
+      "itemEquipped": "{{actor}} экипирует: {{name}} ({{slot}})",
+      "itemEquippedSwap": "{{actor}} экипирует: {{name}} ({{slot}}); {{replaced}} — обратно в рюкзак",
+      "itemUnequipped": "{{actor}} снимает: {{name}}",
+      "itemUsed": {
+        "heal": "{{actor}} использует: {{name}}",
+        "buff": "{{actor}} использует: {{name}}",
+        "buffRounds": "{{actor}} использует: {{name}} (эффект на {{rounds}} раунд(ов))",
+        "spell": "{{actor}} использует: {{name}} — заклинание «{{spell}}»"
+      },
+      "itemEnhanced": "{{actor}}: {{name}} заточен до +{{enhancement}}",
+      "itemSlot": {
+        "weapon": "оружие",
+        "armor": "доспех",
+        "amulet": "амулет",
+        "ring": "кольцо",
+        "cloak": "плащ",
+        "other": "прочее"
+      },
+      "buffExpired": "Эффект «{{item}}» спадает: {{actor}}",
       "sceneChanged": "Сцена меняется: {{scene}}",
       "revealed": {
         "clue": "Раскрыта улика: {{id}}",
@@ -654,7 +679,8 @@
       "fighter": "Воин",
       "rogue": "Плут",
       "cleric": "Жрец",
-      "ranger": "Следопыт"
+      "ranger": "Следопыт",
+      "scenarioHint": "Сценарий стола ограничивает выбор: показаны только доступные классы."
     },
     "race": {
       "label": "Раса",

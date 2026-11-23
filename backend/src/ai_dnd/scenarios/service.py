@@ -2,15 +2,25 @@
 
 import dataclasses
 from collections import Counter
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from ai_dnd.rules.ruleset import Ruleset
-from ai_dnd.scenarios.schemas import Bestiary, Scenario, SceneCheck, Statblock
+from ai_dnd.config import get_settings
+from ai_dnd.game.skills import load_classes_and_skills
+from ai_dnd.rules.ruleset import Effect, EffectTarget, Ruleset
+from ai_dnd.scenarios.schemas import (
+    MAX_ITEM_ENHANCEMENT,
+    Bestiary,
+    Item,
+    ItemBuff,
+    Scenario,
+    SceneCheck,
+    Statblock,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,13 +68,15 @@ def load_scenario(
     path: Path,
     bestiaries: Iterable[Bestiary] = (),
     ruleset: Ruleset | None = None,
+    *,
+    classes: Collection[str] | None = None,
 ) -> Scenario:
     """Прочитать сценарий и проверить все ссылки внутри него.
 
     Если что-то не так — ``ScenarioError`` со всеми проблемами сразу.
     """
     scenario = Scenario.model_validate(read_yaml(path))
-    issues = find_scenario_issues(scenario, bestiaries, ruleset)
+    issues = find_scenario_issues(scenario, bestiaries, ruleset, classes=classes)
     if issues:
         raise ScenarioError(issues)
     return scenario
@@ -104,11 +116,14 @@ def find_scenario_issues(
     scenario: Scenario,
     bestiaries: Iterable[Bestiary] = (),
     ruleset: Ruleset | None = None,
+    *,
+    classes: Collection[str] | None = None,
 ) -> list[ScenarioIssue]:
     """Все проблемы сценария. Пустой список — по сценарию можно играть.
 
     Без набора правил проверяются только ссылки внутри сценария; с набором — ещё и то,
-    что навыки, спасброски и типы урона в нём существуют.
+    что навыки, спасброски и типы урона в нём существуют. ``classes`` — реестр id
+    классов для ``available_classes``; без него берётся справочник из настроек.
     """
     libraries = list(bestiaries)
     info = scenario.scenario
@@ -144,6 +159,13 @@ def find_scenario_issues(
     if info.start_scene not in known["scenes"]:
         issues.append(
             ScenarioIssue("unknown_scene", "scenario.start_scene", {"id": info.start_scene})
+        )
+    if info.available_classes:
+        known_classes = _known_classes(classes)
+        issues.extend(
+            ScenarioIssue("unknown_class", f"scenario.available_classes[{index}]", {"id": class_id})
+            for index, class_id in enumerate(info.available_classes)
+            if class_id not in known_classes
         )
 
     for scene in scenario.scenes:
@@ -192,6 +214,9 @@ def find_scenario_issues(
             if _missing(scenario, group.statblock, libraries)
         )
 
+    for item in scenario.items:
+        issues.extend(_item_issues(item, f"items.{item.id}", ruleset))
+
     if ruleset is not None:
         for statblock_id, statblock in scenario.statblocks.items():
             issues.extend(_statblock_issues(statblock, f"statblocks.{statblock_id}", ruleset))
@@ -212,6 +237,15 @@ def find_scenario_issues(
 
 def _missing(scenario: Scenario, ref: str, bestiaries: Iterable[Bestiary]) -> bool:
     return resolve_statblock(scenario, ref, bestiaries) is None
+
+
+def _known_classes(classes: Collection[str] | None) -> Collection[str]:
+    if classes is not None:
+        return classes
+    # Классы — общий справочник content/ (как бестиарий и глоссарий), поэтому без
+    # явного реестра он берётся из настроек: валидация работает и в publish-пути.
+    registry, _ = load_classes_and_skills(get_settings().content_dir)
+    return registry.keys()
 
 
 def _check_issues(
@@ -236,6 +270,47 @@ def _check_issues(
                 yield ScenarioIssue(
                     "unknown_reveal", f"{path}.{outcome}.reveal[{index}]", {"id": target}
                 )
+
+
+def _item_issues(item: Item, path: str, ruleset: Ruleset | None) -> Iterator[ScenarioIssue]:
+    if item.enhancement > MAX_ITEM_ENHANCEMENT:
+        yield ScenarioIssue(
+            "enhancement_over_limit",
+            f"{path}.enhancement",
+            {"value": item.enhancement, "limit": MAX_ITEM_ENHANCEMENT},
+        )
+    if item.kind == "consumable" and item.consumable_effect is None:
+        yield ScenarioIssue("consumable_without_effect", f"{path}.consumable_effect")
+    for index, effect in enumerate(item.modifiers):
+        yield from _effect_issues(effect, f"{path}.modifiers[{index}]", ruleset)
+    if isinstance(item.consumable_effect, ItemBuff):
+        for index, effect in enumerate(item.consumable_effect.effects):
+            yield from _effect_issues(effect, f"{path}.consumable_effect.effects[{index}]", ruleset)
+    if (
+        ruleset is not None
+        and item.damage_type is not None
+        and item.damage_type not in ruleset.damage_types
+    ):
+        yield ScenarioIssue("unknown_damage_type", f"{path}.damage_type", {"id": item.damage_type})
+
+
+def _effect_issues(effect: Effect, path: str, ruleset: Ruleset | None) -> Iterator[ScenarioIssue]:
+    """Те же требования, что к эффектам состояний набора правил (rules/ruleset.py)."""
+    if effect.mode is None and effect.bonus == 0 and not effect.auto_fail:
+        yield ScenarioIssue("empty_effect", path)
+    is_attack = effect.applies_to in (EffectTarget.ATTACKS, EffectTarget.ATTACKS_AGAINST)
+    if is_attack and effect.auto_fail:
+        yield ScenarioIssue("auto_fail_on_attack", path)
+    if is_attack and effect.only:
+        yield ScenarioIssue("only_on_attack", f"{path}.only")
+        return
+    if ruleset is None:
+        return
+    known = ruleset.saves if effect.applies_to is EffectTarget.SAVES else ruleset.checks
+    code = "unknown_save" if effect.applies_to is EffectTarget.SAVES else "unknown_check"
+    for subject in effect.only:
+        if subject not in known:
+            yield ScenarioIssue(code, f"{path}.only", {"id": subject})
 
 
 def _statblock_issues(statblock: Statblock, path: str, ruleset: Ruleset) -> Iterator[ScenarioIssue]:

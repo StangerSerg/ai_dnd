@@ -25,10 +25,11 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from ai_dnd.game.content import GameContent
 from ai_dnd.game.decision import TurnDecision
 from ai_dnd.game.presence import is_dead, is_present
-from ai_dnd.game.session import SessionSetup, SessionState
+from ai_dnd.game.session import InventoryItem, SessionSetup, SessionState
 from ai_dnd.game.spells import CURE_WOUNDS_TOOL, FIRST_LEVEL_SLOT
 from ai_dnd.i18n import localize
 from ai_dnd.rules.combat import incapacitated_by
+from ai_dnd.rules.engine import BUFF_CONDITION_PREFIX, ITEM_CONDITION_PREFIX
 from ai_dnd.rules.ruleset import RollBands, RollVsTarget
 from ai_dnd.rules.state import HIDDEN, CombatState
 from ai_dnd.rulesets.glossary import translation_lines
@@ -268,6 +269,9 @@ class ContextBuilder:
             "healing, regained consciousness, death or flight unless the committed outcomes "
             "show it. If requested healing has no committed outcome, say it was not resolved. "
             "If no roll or effect happened, leave uncertain attempts unresolved. "
+            "When describing where the party is or can go, name only the current scene and "
+            "its Exits — the only reachable locations; never describe presence in or scouting "
+            "of a location without a committed change_scene to it. "
             "You may answer players' questions from the public background fragments above "
             "(known lore, not a new discovery); never reveal DM-only information."
         )
@@ -563,13 +567,33 @@ class ContextBuilder:
         for seat in self._setup.seats:
             actor = state.rules.actors[seat.actor_id]
             hp = actor.hp
+            entries = {
+                item.item_id: item
+                for item in state.inventory.get(seat.actor_id, ())
+                if item.item_id is not None
+            }
+            worn = state.equipment.get(seat.actor_id, {})
             conditions = ", ".join(
-                localize(self._content.ruleset.conditions[item.id].label, self._language)
-                if item.id in self._content.ruleset.conditions
-                else item.id
+                self._condition_text(item.id, entries)
                 for item in actor.conditions
+                # item:* — служебные условия экипировки; мастер видит их строкой equipment.
+                if not item.id.startswith(ITEM_CONDITION_PREFIX)
             )
-            items = ", ".join(item.name for item in state.inventory.get(seat.actor_id, ()))
+            items = ", ".join(
+                item.name
+                + (f" +{item.enhancement}" if item.enhancement else "")
+                + (f" ×{item.quantity}" if item.quantity > 1 else "")
+                for item in state.inventory.get(seat.actor_id, ())
+            )
+            equipment = ", ".join(
+                f"{slot}: {entries[item_id].name}"
+                + (f" +{entries[item_id].enhancement}" if entries[item_id].enhancement else "")
+                for item_id, slot in worn.items()
+                if item_id in entries
+            )
+            ac = actor.ac
+            if ac is not None:
+                ac += sum(self._item_ac_bonus(item_id) for item_id in worn)
             protector = (
                 state.rules.actors[actor.protected_by].name
                 if actor.protected_by is not None and actor.protected_by in state.rules.actors
@@ -580,14 +604,30 @@ class ContextBuilder:
                     "id": actor.id,
                     "name": actor.name,
                     "hp": f"{hp.current}/{hp.max}" if hp else "—",
-                    "ac": actor.ac if actor.ac is not None else "—",
+                    "ac": ac if ac is not None else "—",
                     "conditions": conditions + (" (dead)" if actor.dead else ""),
                     "items": items,
+                    "equipment": equipment,
                     "skills": ", ".join(actor.skills),
                     "protected_by": protector,
                 }
             )
         return members
+
+    def _condition_text(self, condition_id: str, entries: dict[str, InventoryItem]) -> str:
+        if condition_id.startswith(BUFF_CONDITION_PREFIX):
+            item_id = condition_id[len(BUFF_CONDITION_PREFIX) :]
+            entry = entries.get(item_id)
+            return f"buff: {entry.name}" if entry else condition_id
+        if condition_id in self._content.ruleset.conditions:
+            return localize(self._content.ruleset.conditions[condition_id].label, self._language)
+        return condition_id
+
+    def _item_ac_bonus(self, item_id: str) -> int:
+        for item in self._content.scenario.items:
+            if item.id == item_id:
+                return item.ac_bonus
+        return 0
 
     def _scene(self, scene_id: str) -> Scene:
         return next(scene for scene in self._content.scenario.scenes if scene.id == scene_id)

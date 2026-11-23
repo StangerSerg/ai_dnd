@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -68,6 +68,18 @@ function CreateCharacterDialog({ tableContext }: { tableContext?: TableContext }
     retry: false,
   })
   const contextTitle = contextScenario?.title ?? previewQuery.data?.scenario_title ?? tableContext?.scenarioVersionId
+
+  // Сценарный блок «доступные классы» (v0.2): превью стола несёт список id;
+  // пусто/отсутствует — доступны все бета-классы (обратная совместимость).
+  const scenarioClasses = previewQuery.data?.available_classes
+  const allowedClasses = useMemo(() => {
+    const allowed = (scenarioClasses ?? []).filter((value): value is CharacterClass =>
+      (CHARACTER_CLASSES as readonly string[]).includes(value))
+    return allowed.length > 0 ? allowed : [...CHARACTER_CLASSES]
+  }, [scenarioClasses])
+  useEffect(() => {
+    if (!allowedClasses.includes(charClass)) setCharClass(allowedClasses[0])
+  }, [allowedClasses, charClass])
 
   const mutation = useMutation({
     mutationFn: portal.createCharacter,
@@ -164,10 +176,13 @@ function CreateCharacterDialog({ tableContext }: { tableContext?: TableContext }
             <Label htmlFor="character-class">{t('characters:class.label')}</Label>
             <select id="character-class" className={selectClass} value={charClass}
               onChange={event => setCharClass(event.target.value as CharacterClass)} data-testid="character-class-select">
-              {CHARACTER_CLASSES.map(value => (
+              {allowedClasses.map(value => (
                 <option key={value} value={value}>{t(`characters:class.${value}`)}</option>
               ))}
             </select>
+            {scenarioClasses && scenarioClasses.length > 0 && (
+              <p className="text-xs text-muted-foreground" data-testid="class-scenario-hint">{t('characters:class.scenarioHint')}</p>
+            )}
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="character-race">{t('characters:race.label')}</Label>

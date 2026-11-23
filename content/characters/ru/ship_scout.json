@@ -1,0 +1,38 @@
+{
+  "template": "worms-ship@1",
+  "class_id": "ship_scout",
+  "values": {
+    "name": "Мираж",
+    "race": "Разведывательный корвет",
+    "char_class": "Разведчик",
+    "pilot": "Илмар Ренн",
+    "level": 2,
+    "engines": 15,
+    "sensors": 14,
+    "comms": 10,
+    "hull": 10,
+    "systems": 12,
+    "crew": 9,
+    "save_engines_prof": true,
+    "save_sensors_prof": true,
+    "piloting_prof": "proficient",
+    "scanning_prof": "proficient",
+    "stealth_prof": "expertise",
+    "engineering_prof": "proficient",
+    "ac_base": 12,
+    "shield": true,
+    "hp": {"current": 20},
+    "missiles": {"current": 4, "max": 4},
+    "torpedoes": {"current": 0, "max": 0},
+    "spares": {"current": 2, "max": 2},
+    "attacks": [
+      {"name": "Лазерная установка Л-2", "bonus": 5, "damage": "1d6+4", "damage_type": "laser", "notes": "основной калибр, безлимитный"},
+      {"name": "Ракетная установка Р-40", "bonus": 5, "damage": "2d6", "damage_type": "missile", "notes": "расходует ракеты"}
+    ],
+    "cargo": [
+      {"name": "Глушитель сигнатур", "qty": 1, "notes": "встроен; в v0.2 — модуль слота masking"}
+    ],
+    "features": "Архетип «Разведчик»: умение stealth — маскировка: гашение теплового следа и радиомолчание, скрытный заход и уход из боя.\nЭкран-отражатель: +2 к КД.\nГлушитель сигнатур: компетентность Маскировки.",
+    "proficiencies": "Экипаж 4 человека; штурман — бывший картограф Пояса, знает сектора наизусть."
+  }
+}

@@ -8,7 +8,11 @@ from ai_dnd.game.content import GameContent
 from ai_dnd.game.events import (
     ActorsJoined,
     FactNoted,
+    ItemEnhanced,
+    ItemEquipped,
     ItemGranted,
+    ItemUnequipped,
+    ItemUsed,
     JournalEvent,
     Narrated,
     NpcAttitudeChanged,
@@ -20,6 +24,7 @@ from ai_dnd.game.events import (
 from ai_dnd.game.session import SessionState
 from ai_dnd.i18n import localize
 from ai_dnd.rules.dice import ConstantTermResult, DiceTermResult, RollResult
+from ai_dnd.rules.engine import BUFF_CONDITION_PREFIX
 from ai_dnd.rules.events import (
     ActorDied,
     ActorFled,
@@ -75,6 +80,20 @@ _TEXTS: dict[str, dict[str, str]] = {
         "revealed": "Открыто: {text}",
         "attitude": "{npc}: отношение — {attitude}",
         "item": "{actor} получает: {item}",
+        "item_equipped": "{actor} экипирует: {item} ({slot})",
+        "item_equipped_swap": "{actor} экипирует: {item} ({slot}); {replaced} — обратно в рюкзак",
+        "item_unequipped": "{actor} снимает: {item}",
+        "item_used": "{actor} использует: {item}",
+        "item_used_rounds": " (эффект на {rounds} раунд(ов))",
+        "item_used_spell": "{actor} использует: {item} — заклинание «{spell}»",
+        "item_enhanced": "{actor}: {item} заточен до +{enhancement}",
+        "buff_off": "Эффект «{item}» спадает: {actor}",
+        "slot_weapon": "оружие",
+        "slot_armor": "доспех",
+        "slot_amulet": "амулет",
+        "slot_ring": "кольцо",
+        "slot_cloak": "плащ",
+        "slot_other": "прочее",
         "joined": "Появляются: {names}",
         "fact": "Заметка ведущего: {text}",
         "contest": (
@@ -118,6 +137,22 @@ _TEXTS: dict[str, dict[str, str]] = {
         "revealed": "Discovered: {text}",
         "attitude": "{npc}: attitude is now {attitude}",
         "item": "{actor} gets: {item}",
+        "item_equipped": "{actor} equips: {item} ({slot})",
+        "item_equipped_swap": (
+            "{actor} equips: {item} ({slot}); {replaced} goes back to the backpack"
+        ),
+        "item_unequipped": "{actor} unequips: {item}",
+        "item_used": "{actor} uses: {item}",
+        "item_used_rounds": " (effect for {rounds} round(s))",
+        "item_used_spell": '{actor} uses: {item} — spell "{spell}"',
+        "item_enhanced": "{actor}: {item} is enhanced to +{enhancement}",
+        "buff_off": "The effect of {item} wears off: {actor}",
+        "slot_weapon": "weapon",
+        "slot_armor": "armor",
+        "slot_amulet": "amulet",
+        "slot_ring": "ring",
+        "slot_cloak": "cloak",
+        "slot_other": "other",
         "joined": "Appearing: {names}",
         "fact": "DM note: {text}",
         "contest": (
@@ -233,6 +268,11 @@ class EventRenderer:
                     actor=name(event.actor_id), condition=self._condition_label(event.condition)
                 )
             case ConditionRemoved():
+                if event.condition.startswith(BUFF_CONDITION_PREFIX):
+                    return t["buff_off"].format(
+                        actor=name(event.actor_id),
+                        item=self._condition_label(event.condition),
+                    )
                 return t["condition_off"].format(
                     actor=name(event.actor_id), condition=self._condition_label(event.condition)
                 )
@@ -267,7 +307,35 @@ class EventRenderer:
                     npc=self._npc_name(event.npc_id), attitude=t[event.attitude]
                 )
             case ItemGranted():
-                return "🎒 " + t["item"].format(actor=name(event.actor_id), item=event.name)
+                suffix = (f" +{event.enhancement}" if event.enhancement else "") + (
+                    f" ×{event.quantity}" if event.quantity > 1 else ""
+                )
+                return "🎒 " + t["item"].format(
+                    actor=name(event.actor_id), item=event.name + suffix
+                )
+            case ItemEquipped():
+                template = "item_equipped_swap" if event.replaced else "item_equipped"
+                return t[template].format(
+                    actor=name(event.actor_id),
+                    item=event.name,
+                    slot=t[f"slot_{event.slot}"],
+                    replaced=event.replaced or "",
+                )
+            case ItemUnequipped():
+                return t["item_unequipped"].format(actor=name(event.actor_id), item=event.name)
+            case ItemUsed():
+                if event.effect == "spell":
+                    return t["item_used_spell"].format(
+                        actor=name(event.actor_id), item=event.name, spell=event.spell or ""
+                    )
+                line_text = t["item_used"].format(actor=name(event.actor_id), item=event.name)
+                if event.effect == "buff" and event.rounds is not None:
+                    line_text += t["item_used_rounds"].format(rounds=event.rounds)
+                return line_text
+            case ItemEnhanced():
+                return "⚒ " + t["item_enhanced"].format(
+                    actor=name(event.actor_id), item=event.name, enhancement=event.enhancement
+                )
             case ActorsJoined():
                 return t["joined"].format(names=", ".join(actor.name for actor in event.actors))
             case FactNoted():
@@ -289,6 +357,8 @@ class EventRenderer:
         return localize(definition.label, self._language) if definition else check_id
 
     def _condition_label(self, condition_id: str) -> str:
+        if condition_id.startswith(BUFF_CONDITION_PREFIX):
+            return self._entity_text(condition_id[len(BUFF_CONDITION_PREFIX) :])
         definition = self._content.ruleset.conditions.get(condition_id)
         return localize(definition.label, self._language) if definition else condition_id
 

@@ -10,6 +10,11 @@ export interface CardStat {
   value: ReactNode
 }
 
+export interface CardSkill {
+  id: string
+  label: string
+}
+
 export function CharacterCard({
   portrait,
   artNote,
@@ -19,6 +24,7 @@ export function CharacterCard({
   stats,
   hp,
   hpLabel,
+  skills,
   children,
 }: {
   portrait: { name: string; image: string } | null
@@ -29,6 +35,7 @@ export function CharacterCard({
   stats: CardStat[]
   hp?: { current: number; max: number } | null
   hpLabel?: string
+  skills?: CardSkill[]
   children?: ReactNode
 }) {
   return (
@@ -48,6 +55,11 @@ export function CharacterCard({
           </>
         )}
         <div className="stats">{stats.map(stat => <div key={stat.key}><strong>{stat.value}</strong><small>{stat.short}</small></div>)}</div>
+        {skills && skills.length > 0 && (
+          <div className="skill-badges" data-testid="skill-badges">
+            {skills.map(skill => <span key={skill.id} className="skill-badge">{skill.label}</span>)}
+          </div>
+        )}
         {children}
       </div>
     </section>

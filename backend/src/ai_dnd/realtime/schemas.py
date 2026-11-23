@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai_dnd.game.session import Improvisation
+from ai_dnd.game.spells import CureWoundsCapability
 
 
 class _Schema(BaseModel):
@@ -41,6 +42,9 @@ class SeatInfo(_Schema):
     muted: bool = False
     mute_source: str | None = None
     dice_style: str = "amber"
+    # Витрина скиллов класса: id из content/skills.yaml и параметры лечения.
+    skills: list[str] = Field(default_factory=list)
+    cure_wounds: CureWoundsCapability | None = None
 
 
 class MuteRequest(_Schema):
@@ -111,6 +115,8 @@ class SessionPreviewResponse(_Schema):
     seats_taken: int
     taken_character_ids: list[uuid.UUID] = Field(default_factory=list)
     host_name: str | None = None
+    # Классы сценария для создания персонажа за столом; пусто — все классы.
+    available_classes: list[str] = Field(default_factory=list)
 
 
 class SessionResponse(_Schema):

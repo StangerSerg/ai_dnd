@@ -730,6 +730,10 @@ export function GamePage() {
                 }))}
                 hp={hp}
                 hpLabel={t('game:hp')}
+                skills={(myActor?.skills ?? seat.skills ?? []).map(id => ({
+                  id,
+                  label: t(`game:skills.${id}`, { defaultValue: id }),
+                }))}
               >
                 <div className="hero-actions">
                   <button type="button" className="secondary-button" disabled={!sheet}

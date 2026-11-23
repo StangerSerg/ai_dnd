@@ -40,7 +40,7 @@ Encounters here:
 {% endfor %}
 {% endif %}
 {% if exits %}
-Exits:
+Exits (the ONLY reachable locations from this scene; travel is possible only to these):
 {% for exit in exits %}
 - {{ exit.id }}: {{ exit.title }}
 {% endfor %}
@@ -48,7 +48,7 @@ Exits:
 
 # Party status
 {% for member in party %}
-- {{ member.name }} (id: {{ member.id }}): HP {{ member.hp }}, AC {{ member.ac }}{% if member.conditions %}, conditions: {{ member.conditions }}{% endif %}{% if member['items'] %}, found items: {{ member['items'] }}{% endif %}{% if member.skills %}, class skills: {{ member.skills }}{% endif %}{% if member.protected_by %}, protected by {{ member.protected_by }}{% endif %}
+- {{ member.name }} (id: {{ member.id }}): HP {{ member.hp }}, AC {{ member.ac }}{% if member.conditions %}, conditions: {{ member.conditions }}{% endif %}{% if member['items'] %}, found items: {{ member['items'] }}{% endif %}{% if member.equipment %}, equipped: {{ member.equipment }}{% endif %}{% if member.skills %}, class skills: {{ member.skills }}{% endif %}{% if member.protected_by %}, protected by {{ member.protected_by }}{% endif %}
 
 {% endfor %}
 {% if revealed %}

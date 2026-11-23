@@ -12,7 +12,7 @@
 движок отвечает ``ActionError`` и ничего не бросает.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from typing import Literal, assert_never
 
@@ -85,6 +85,7 @@ from ai_dnd.rules.events import (
 from ai_dnd.rules.rng import Rng
 from ai_dnd.rules.ruleset import (
     Difficulty,
+    Effect,
     EffectTarget,
     Outcome,
     RollBands,
@@ -119,12 +120,55 @@ class _Modifiers:
     auto_failed_by: str | None = None
 
 
+# Экипировка и бафы предметов живут в actor.conditions как состояния с этими префиксами.
+# Их определений нет в наборе правил: движок получает их отдельной картой (решение 18.11 —
+# модификаторы экипировки считает движок, карточка не пересчитывается).
+ITEM_CONDITION_PREFIX = "item:"
+BUFF_CONDITION_PREFIX = "buff:"
+
+
+def item_condition_id(item_id: str, enhancement: int) -> str:
+    """Id состояния надетого предмета; степень заточки — часть id."""
+    return f"{ITEM_CONDITION_PREFIX}{item_id}:{enhancement}"
+
+
+def buff_condition_id(item_id: str) -> str:
+    """Id состояния временного бафа одноразового предмета."""
+    return f"{BUFF_CONDITION_PREFIX}{item_id}"
+
+
+def condition_item_id(condition_id: str) -> str | None:
+    """Id предмета для состояний экипировки/бафов; None — обычное состояние набора правил."""
+    if condition_id.startswith(ITEM_CONDITION_PREFIX):
+        return condition_id[len(ITEM_CONDITION_PREFIX) :].rsplit(":", 1)[0]
+    if condition_id.startswith(BUFF_CONDITION_PREFIX):
+        return condition_id[len(BUFF_CONDITION_PREFIX) :]
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class ItemMechanics:
+    """Механика предмета для движка: эффекты бросков плюс скаляры КД и урона.
+
+    Ключ карты — id состояния (``item_condition_id``/``buff_condition_id``); заточка
+    зашита в ключ, поэтому карта статична, а степень берётся из состояния участника.
+    """
+
+    effects: tuple[Effect, ...] = ()
+    ac_bonus: int = 0
+    damage_bonus: int = 0
+    # Заточка даёт +N к атаке и урону только оружием (slot == weapon).
+    weapon: bool = False
+    enhancement: int = 0
+
+
 class RulesEngine:
-    def __init__(self, ruleset: Ruleset) -> None:
+    def __init__(self, ruleset: Ruleset, items: Mapping[str, ItemMechanics] | None = None) -> None:
         issues = find_ruleset_issues(ruleset)
         if issues:
             raise RulesetError(issues)
         self.ruleset = ruleset
+        self._items: Mapping[str, ItemMechanics] = dict(items) if items else {}
         self._check_dice: tuple[Term, ...] = parse(ruleset.resolution.dice).terms
         self._attack_dice: tuple[Term, ...] = parse(ruleset.combat.attack_dice).terms
 
@@ -480,6 +524,7 @@ class RulesEngine:
                 )
         if struck.ac is None:
             raise ActionError("no_armor_class", actor_id=struck.id)
+        target_ac = struck.ac + self._item_ac(struck)
         if profile.damage is not None:
             # До броска атаки: если урон нанести нельзя, не должна быть брошена ни одна кость.
             self._ensure_can_be_damaged(struck, profile.damage_type)
@@ -519,7 +564,7 @@ class RulesEngine:
         ):
             outcome = Outcome.CRITICAL_SUCCESS
         else:
-            outcome = Outcome.SUCCESS if result.total >= struck.ac else Outcome.FAILURE
+            outcome = Outcome.SUCCESS if result.total >= target_ac else Outcome.FAILURE
 
         if paid_with is not None:
             events.append(
@@ -538,13 +583,18 @@ class RulesEngine:
                 outcome=outcome,
                 total=result.total,
                 natural=natural,
-                target_ac=struck.ac,
+                target_ac=target_ac,
                 mode=mode,
                 redirected_to_id=struck.id if struck.id != target.id else None,
             ),
         ]
         if outcome.succeeded and profile.damage is not None:
             damage = parse(profile.damage)
+            equipment_bonus = self._item_damage(attacker)
+            if equipment_bonus:
+                damage = DiceExpression(
+                    terms=(*damage.terms, ConstantTerm.signed(equipment_bonus, label="equipment"))
+                )
             if outcome is Outcome.CRITICAL_SUCCESS and combat.critical_damage == "double_dice":
                 damage = _double_dice(damage)
             events.extend(
@@ -828,9 +878,22 @@ class RulesEngine:
         auto_failed_by: str | None = None
         for active in actor.conditions:
             definition = self.ruleset.conditions.get(active.id)
-            if definition is None:
-                continue
-            for effect in definition.effects:
+            if definition is not None:
+                effects = definition.effects
+                label = active.id
+            else:
+                mechanics = self._items.get(active.id)
+                if mechanics is None:
+                    continue
+                effects = mechanics.effects
+                label = condition_item_id(active.id) or active.id
+                if mechanics.weapon and mechanics.enhancement and target is EffectTarget.ATTACKS:
+                    bonuses.append(
+                        ConstantTerm.signed(
+                            mechanics.enhancement, label=f"{label}+{mechanics.enhancement}"
+                        )
+                    )
+            for effect in effects:
                 if effect.applies_to is not target:
                     continue
                 if effect.only and subject not in effect.only:
@@ -838,10 +901,28 @@ class RulesEngine:
                 if effect.mode is not None:
                     modes.append(effect.mode)
                 if effect.bonus:
-                    bonuses.append(ConstantTerm.signed(effect.bonus, label=active.id))
+                    bonuses.append(ConstantTerm.signed(effect.bonus, label=label))
                 if effect.auto_fail and auto_failed_by is None:
                     auto_failed_by = active.id
         return _Modifiers(tuple(modes), tuple(bonuses), auto_failed_by)
+
+    def _item_ac(self, actor: Actor) -> int:
+        """Надбавка КД от надетых предметов (бафы КД не дают)."""
+        total = 0
+        for active in actor.conditions:
+            mechanics = self._items.get(active.id)
+            if mechanics is not None:
+                total += mechanics.ac_bonus
+        return total
+
+    def _item_damage(self, actor: Actor) -> int:
+        """Плоская надбавка урона от экипировки: damage_bonus плюс заточка оружия."""
+        total = 0
+        for active in actor.conditions:
+            mechanics = self._items.get(active.id)
+            if mechanics is not None:
+                total += mechanics.damage_bonus + (mechanics.enhancement if mechanics.weapon else 0)
+        return total
 
     def _ensure_can_act(self, actor: Actor) -> None:
         condition = incapacitated_by(self.ruleset, actor)
