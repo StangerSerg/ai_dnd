@@ -140,9 +140,14 @@ export function GamePage() {
   const session = sessionQuery.data
   const state = useMemo(() => (session ? sessionStateView(session) : null), [session])
   const seat = session?.seat ?? null
+  // Роль места задаёт возможности игрока/наблюдателя; лидерство — отдельный
+  // серверный флаг is_host (в ai-режиме лидер сидит за столом своим персонажем).
   const isPlayer = seat?.role === 'player'
-  const isLeader = seat?.role === 'dm'
+  const isLeader = Boolean(session?.is_host)
   const isSpectator = seat?.role === 'spectator'
+  // Лидер с dm-местом (human-режим и старые столы) после передачи лидерства
+  // теряет место и уходит в зал; лидер-игрок (ai-режим) остаётся за столом.
+  const leaderStaysAtTable = isLeader && seat?.role !== 'dm'
 
   useEffect(() => {
     setMutedOverride({})
@@ -200,25 +205,32 @@ export function GamePage() {
     if (!kicked && !leavingRef.current && !transferringRef.current) void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
   }
 
-  // Передача ведения (host_transferred): бэкенд НЕ шлёт seat_update, только
-  // этот control, затем закрывает сокеты старого и нового ведущего (4403).
+  // Передача лидерства (host_transferred): бэкенд НЕ шлёт seat_update, только
+  // этот control. В ai-режиме dm_seat_id/removed_seat_id = null — новый лидер
+  // сохраняет своё место игрока, прежний лидер тоже остаётся игроком, никто не
+  // уходит в зал (сокеты не закрываются). В human-режиме и на старых столах ids
+  // заполнены: повышенный игрок занимает dm-место (его прежнее место удалено,
+  // сервер закрыл его сокет кодом 4403), прежний ведущий теряет стол.
   function handleHostTransferred(payload: HostTransferred) {
     const myUserId = seat?.user_id ?? null
-    if (myUserId && payload.new_host_user_id === myUserId) {
-      // Я — повышенный игрок: рефетч (роль станет dm) + форс-reconnect,
-      // иначе терминальный 4403 оставит меня без dm-видимых событий.
+    const iAmNewHost = myUserId != null && payload.new_host_user_id === myUserId
+    const legacyTransfer = payload.dm_seat_id != null || payload.removed_seat_id != null
+    if (iAmNewHost && legacyTransfer) {
+      // Human/старый стол, я — повышенный игрок: моё прежнее место удалено, я
+      // занял dm-место. Рефетч (роль станет dm) + форс-reconnect после 4403.
       transferringRef.current = true
       void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
       setReconnectNonce(previous => previous + 1)
-    } else if (seat?.role === 'dm' || (seat && seat.id === payload.dm_seat_id)) {
-      // Я — старый ведущий: места больше нет, ухожу в зал (не кик).
+    } else if (legacyTransfer && (seat?.role === 'dm' || (seat && seat.id === payload.dm_seat_id))) {
+      // Human/старый стол, я — прежний ведущий: места больше нет, ухожу в зал (не кик).
       transferringRef.current = true
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
       void queryClient.invalidateQueries({ queryKey: ['open-tables'] })
       void queryClient.invalidateQueries({ queryKey: ['hall-previews'] })
       void navigate({ to: '/games' })
     } else {
-      // Другой игрок/наблюдатель: сокет жив, просто обновляем места/хоста.
+      // ai-режим (новый лидер и прежний лидер-игрок) либо другой игрок/наблюдатель:
+      // сокет жив, место цело — просто обновляем сессию, чтобы is_host обновился у всех.
       void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
     }
   }
@@ -261,8 +273,9 @@ export function GamePage() {
     seedDiceReveal(sessionId, session.events.filter(entry => entry.type === 'DiceRolled').map(entry => entry.seq))
   }, [sessionId, session, seedDiceReveal])
 
-  // Повышенный игрок после рефетча уже dm — защита от kick-баннера больше не
-  // нужна (последующие кики должны показывать баннер как обычно).
+  // Human/старый стол: повышенный игрок после рефетча уже dm — защита от
+  // kick-баннера больше не нужна (последующие кики должны показывать баннер как
+  // обычно). В ai-режиме transferringRef для нового лидера не взводится.
   useEffect(() => {
     if (transferringRef.current && seat?.role === 'dm') transferringRef.current = false
   }, [seat])
@@ -345,29 +358,48 @@ export function GamePage() {
     }
   }
 
-  // Кому можно передать ведение: места игроков с user_id, не удалённые.
+  // Кому можно передать лидерство: места игроков с user_id, не удалённые и не
+  // своё собственное (в ai-режиме лидер тоже сидит игроком).
   const hostLeaveTargets: HostLeaveTarget[] = useMemo(() => (session?.seats ?? [])
-    .filter(member => member.role === 'player' && member.user_id && !removedSeats.has(member.id))
+    .filter(member => member.role === 'player' && member.user_id && member.id !== seat?.id && !removedSeats.has(member.id))
     .map(member => ({
       id: member.id,
       name: member.name ?? state?.rules.actors[member.actor_id]?.name ?? member.actor_id,
-    })), [session?.seats, removedSeats, state])
+    })), [session?.seats, removedSeats, state, seat])
 
-  // Выход ведущего: передача ведения игроку (transfer-host) либо закрытие
-  // стола (stop), если игроков нет. Успех → зал; ошибка остаётся в диалоге.
+  // Выход лидера: передача лидерства игроку (transfer-host) либо закрытие стола
+  // (stop), если передавать некому. В ai-режиме после передачи лидер остаётся за
+  // столом своим персонажем (оба id в ответе null) — диалог закрывается, сессия
+  // рефетчится. В human-режиме/на старых столах лидер теряет dm-место и уходит в
+  // зал. Закрытие стола всегда уводит в зал. Ошибка остаётся в диалоге.
   async function confirmHostLeave(targetSeatId: string | null) {
     setHostLeaveBusy(true)
     setHostLeaveError(null)
     transferringRef.current = true
     try {
-      if (targetSeatId) await portal.transferHost(sessionId, targetSeatId)
-      else await portal.stopSession(sessionId)
-      setHostLeaveOpen(false)
-      void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
-      void queryClient.invalidateQueries({ queryKey: ['sessions'] })
-      void queryClient.invalidateQueries({ queryKey: ['open-tables'] })
-      void queryClient.invalidateQueries({ queryKey: ['hall-previews'] })
-      void navigate({ to: '/games' })
+      if (targetSeatId) {
+        const result = await portal.transferHost(sessionId, targetSeatId)
+        setHostLeaveOpen(false)
+        void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
+        void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+        void queryClient.invalidateQueries({ queryKey: ['open-tables'] })
+        void queryClient.invalidateQueries({ queryKey: ['hall-previews'] })
+        // ai-режим: оба id null → лидер сохраняет место и остаётся за столом.
+        // human/старый стол: dm-место занято целью, прежнее место лидера утрачено → в зал.
+        if (result.dm_seat_id != null || result.removed_seat_id != null) {
+          void navigate({ to: '/games' })
+        } else {
+          transferringRef.current = false
+        }
+      } else {
+        await portal.stopSession(sessionId)
+        setHostLeaveOpen(false)
+        void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
+        void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+        void queryClient.invalidateQueries({ queryKey: ['open-tables'] })
+        void queryClient.invalidateQueries({ queryKey: ['hall-previews'] })
+        void navigate({ to: '/games' })
+      }
     } catch (error) {
       transferringRef.current = false
       setHostLeaveError(hostLeaveErrorText(error, t))
@@ -787,6 +819,7 @@ export function GamePage() {
         targets={hostLeaveTargets}
         busy={hostLeaveBusy}
         error={hostLeaveError}
+        staysAtTable={leaderStaysAtTable}
         onConfirm={targetSeatId => void confirmHostLeave(targetSeatId)}
         onCancel={() => { setHostLeaveOpen(false); setHostLeaveError(null) }}
       />

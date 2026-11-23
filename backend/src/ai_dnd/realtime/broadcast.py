@@ -106,14 +106,16 @@ async def publish_host_transferred(
     redis: Redis,
     session_id: uuid.UUID,
     *,
-    dm_seat_id: uuid.UUID,
+    dm_seat_id: uuid.UUID | None,
     new_host_user_id: uuid.UUID,
-    removed_seat_id: uuid.UUID,
+    removed_seat_id: uuid.UUID | None,
 ) -> None:
     """Эфемерное control-сообщение передачи ведения стола: без seq, не журналируется.
 
     Отдельный тип (не seat_update removed=True): удаление собственного места
     фронтенд трактует как кик, а повышенный игрок должен узнать о новом dm-месте.
+    В ai-режиме dm-места нет и никто не теряет место: dm_seat_id/removed_seat_id —
+    null, сокеты не закрываются (клиенты сами обновят сессию).
     """
     await publish_event(
         redis,
@@ -122,9 +124,9 @@ async def publish_host_transferred(
             "type": "host_transferred",
             "payload": {
                 "session_id": str(session_id),
-                "dm_seat_id": str(dm_seat_id),
+                "dm_seat_id": str(dm_seat_id) if dm_seat_id is not None else None,
                 "new_host_user_id": str(new_host_user_id),
-                "removed_seat_id": str(removed_seat_id),
+                "removed_seat_id": str(removed_seat_id) if removed_seat_id is not None else None,
             },
         },
     )

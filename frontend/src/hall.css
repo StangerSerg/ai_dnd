@@ -317,6 +317,34 @@
 .codex-demo.hall-page .hall-invite-row { display: flex; justify-content: center; margin-top: 14px; }
 .codex-demo.hall-page .table-details .primary-button { margin-top: 14px; }
 
+/* ---- Leader table actions: close (stop) / delete (archive) -------------- */
+.codex-demo.hall-page .hall-leader-action {
+  border-top: 1px solid var(--hall-line);
+  margin-top: 16px;
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.codex-demo.hall-page .hall-leader-buttons { display: flex; flex-wrap: wrap; gap: 16px; }
+.codex-demo.hall-page .hall-leader-confirm-text { font: 500 15px/1.4 var(--hall-serif); color: var(--hall-pale); }
+.codex-demo.hall-page .hall-leader-action .text-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: 700 10px/1 'Manrope', sans-serif;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--hall-muted);
+  text-align: left;
+  transition: color .15s;
+}
+.codex-demo.hall-page .hall-leader-action .text-button:hover:not(:disabled) { color: var(--hall-gold-bright); }
+.codex-demo.hall-page .hall-leader-action .text-button:disabled { opacity: .5; cursor: progress; }
+.codex-demo.hall-page .hall-leader-action .text-button.danger { color: var(--hall-ember); }
+.codex-demo.hall-page .hall-leader-action .text-button.danger:hover:not(:disabled) { color: #f0a184; }
+
 /* ---- Loading / empty / error states ----------------------------------- */
 .codex-demo.hall-page .hall-alert {
   width: min(1380px, 92%);
@@ -365,6 +393,82 @@ body:has(.codex-demo.hall-page) .hall-seat-dialog {
   max-width: 460px;
 }
 body:has(.codex-demo.hall-page) .hall-seat-dialog .hall-seat-body { color: var(--hall-pale, #eee5d0); }
+
+/* ---- Create-table dialog (Radix portal → <body>, outside .hall-page) -----
+   The dialog reuses the hall recruiting markup (switch / capacity / stepper)
+   and adds a character picker. Those .codex-demo.hall-page-scoped rules can't
+   reach the portal, so restyle them here with the app theme tokens (which
+   mirror the hall palette). --hall-* vars don't resolve in the portal, hence
+   the explicit fallbacks. */
+.hall-create-dialog .hall-create-visibility {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+}
+.hall-create-dialog .hall-recruiting-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.hall-create-dialog .hall-recruiting-kicker {
+  font: 700 9px/1 'Manrope', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: var(--muted-foreground);
+}
+.hall-create-dialog .hall-recruiting-state {
+  font: 700 8px/1 'Manrope', sans-serif; letter-spacing: .1em; text-transform: uppercase;
+  padding: 5px 8px; border-radius: 2px; border: 1px solid;
+}
+.hall-create-dialog .hall-recruiting-state.is-open { color: var(--hall-moss, #9ec48a); border-color: rgba(158, 196, 138, .5); background: rgba(40, 54, 36, .5); }
+.hall-create-dialog .hall-recruiting-state.is-closed { color: var(--hall-ember, #de7c5c); border-color: rgba(222, 124, 92, .5); background: rgba(60, 34, 26, .5); }
+.hall-create-dialog .hall-switch {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: none; border: 0; padding: 4px 0; cursor: pointer; color: var(--card-foreground);
+}
+.hall-create-dialog .hall-switch:disabled { opacity: .6; cursor: progress; }
+.hall-create-dialog .hall-switch-track {
+  position: relative; flex: 0 0 auto; width: 46px; height: 24px; border-radius: 999px;
+  border: 1px solid #6a5f47; background: #161d17; transition: background .2s, border-color .2s;
+}
+.hall-create-dialog .hall-switch-thumb {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: #8c7959; transition: transform .2s, background .2s;
+}
+.hall-create-dialog .hall-switch.is-on .hall-switch-track { background: #3a4a30; border-color: var(--hall-moss, #9ec48a); }
+.hall-create-dialog .hall-switch.is-on .hall-switch-thumb { transform: translateX(22px); background: var(--hall-moss, #9ec48a); box-shadow: 0 0 10px rgba(158, 196, 138, .7); }
+.hall-create-dialog .hall-switch-label { font: 600 14px var(--hall-serif, Georgia, serif); letter-spacing: .02em; }
+.hall-create-dialog .hall-capacity { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.hall-create-dialog .hall-capacity-label {
+  font: 700 9px/1 'Manrope', sans-serif; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--muted-foreground); flex: 1 1 100%;
+}
+.hall-create-dialog .hall-stepper { display: inline-flex; align-items: center; gap: 10px; }
+.hall-create-dialog .hall-stepper button {
+  width: 34px; height: 34px; background: var(--muted); border: 1px solid #786b51; color: var(--card-foreground);
+  font-size: 19px; border-radius: 2px; cursor: pointer; transition: background .15s, border-color .15s;
+}
+.hall-create-dialog .hall-stepper button:hover:not(:disabled) { background: #3d4533; border-color: var(--primary); }
+.hall-create-dialog .hall-stepper button:disabled { opacity: .4; cursor: not-allowed; }
+.hall-create-dialog .hall-stepper output { min-width: 26px; text-align: center; font: 600 22px var(--hall-serif, Georgia, serif); color: var(--card-foreground); }
+.hall-create-dialog .hall-unlimited {
+  margin-left: auto; font: 700 8px/1 'Manrope', sans-serif; letter-spacing: .1em; text-transform: uppercase;
+  padding: 8px 10px; border: 1px solid #6a5f47; background: #161d17; color: var(--muted-foreground);
+  border-radius: 2px; cursor: pointer; transition: background .15s, color .15s, border-color .15s;
+}
+.hall-create-dialog .hall-unlimited.is-on { border-color: var(--hall-teal, #5fb3a5); color: var(--hall-teal, #5fb3a5); background: rgba(28, 48, 46, .6); }
+.hall-create-dialog .hall-recruiting-status { font-size: 11px; line-height: 1.5; color: var(--muted-foreground); }
+.hall-create-dialog .create-character-picker {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px; max-height: 220px; overflow-y: auto; padding: 2px;
+}
+.hall-create-dialog .create-character-tile {
+  display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--border);
+  border-radius: 4px; background: var(--muted); color: var(--card-foreground); cursor: pointer;
+  text-align: left; transition: border-color .15s, background .15s;
+}
+.hall-create-dialog .create-character-tile:hover { border-color: var(--primary); }
+.hall-create-dialog .create-character-tile.is-selected {
+  border-color: var(--primary); background: rgba(200, 165, 106, .12); box-shadow: inset 0 0 0 1px var(--primary);
+}
+.hall-create-dialog .create-character-name { font: 600 14px var(--hall-serif, Georgia, serif); overflow-wrap: anywhere; }
 
 /* ---- Themed scrollbars (page + horizontal floor) ----------------------- */
 html:has(.codex-demo.hall-page) { scrollbar-color: #8c7959 #14170f; scrollbar-width: thin; }

@@ -137,6 +137,15 @@
       "ai": "AI DM",
       "human": "Human DM"
     },
+    "visibility": {
+      "title": "Table access",
+      "public": "Public",
+      "private": "Private",
+      "toggle": "Public table — visible in the hall of stories, others can join",
+      "seats": "Table capacity",
+      "publicHint": "The table is visible in the hall of stories — other players can sit down while seats remain.",
+      "privateHint": "The table is hidden from the hall — players join only with your invite code."
+    },
     "statusValues": {
       "lobby": "Lobby",
       "active": "Active",
@@ -150,7 +159,9 @@
     "scenarioFallbackHint": "The scenario catalog API is unavailable — paste a published version UUID from the database.",
     "scenarioLanguageEmpty": "No scenarios in this language yet — pick another game language.",
     "scenarioVersionId": "Scenario version UUID",
-    "createHint": "The session is created on the server from the selected scenario. You become the DM and get an invite code.",
+    "createHint": "The session is created on the server from the selected scenario. Set the DM mode, access and capacity — after creation you land straight at the table.",
+    "createDmHintAi": "AI DM: the AI runs the game while you sit at the table as its leader and a player, so pick your character.",
+    "createDmHintHuman": "Human DM: you become the dungeon master and run the game yourself — no character needed.",
     "liveBadge": "live API",
     "listHintLive": "Your sessions from the server: created by you or with a seat at the table.",
     "enter": "Enter the game",
@@ -186,8 +197,11 @@
       "host_only": "Only the team leader can manage recruiting",
       "table_full": "No free seats remain at this table",
       "already_seated": "You already have a seat at this table — observing is unavailable",
+      "class_not_available": "This character's class is not available in the table's scenario",
       "spectators_full": "Spectator seats are full (limit 20)",
-      "class_not_available": "This character's class is not available in the table's scenario"
+      "character_required": "Pick a character for a table with an AI DM",
+      "character_forbidden": "This character is not available to you",
+      "session_not_stopped": "Close the table first — only a stopped session can be deleted"
     },
     "characterEmptyHint": "No characters yet — create your first one to sit at the table.",
     "characterUnavailable": "The characters list is unavailable — try later or paste a character UUID manually.",
@@ -245,6 +259,13 @@
       "emptyTitle": "The hall is empty for now",
       "footerLeft": "Hall of Stories",
       "footerRight": "Choose a table to begin",
+      "closeTable": "Close table",
+      "closeConfirm": "Close the table? The session will be stopped and actions will no longer be accepted. It stays in the hall as a closed table — you can delete it afterwards.",
+      "closeYes": "Yes, close table",
+      "deleteTable": "Delete table",
+      "deleteConfirm": "Delete the table? The closed table will be hidden from the hall and lists. This cannot be undone.",
+      "deleteYes": "Yes, delete table",
+      "actionCancel": "Cancel",
       "recruit": {
         "title": "Table recruiting",
         "open": "Recruiting open",
@@ -308,9 +329,12 @@
     },
     "hostLeave": {
       "transferBody": "You will hand the lead to the chosen player and leave the table. They will become the DM.",
-      "selectPlayer": "Who becomes the DM",
-      "newHostTag": "new DM",
+      "transferTitleStay": "Transfer leadership?",
+      "transferBodyStay": "You will hand leadership to the chosen player but stay at the table with your character. They will become the new leader.",
+      "selectPlayer": "Who becomes the leader",
+      "newHostTag": "new leader",
       "confirmTransfer": "Transfer the lead and leave",
+      "confirmTransferStay": "Transfer leadership",
       "closeBody": "There are no players at the table to hand the lead to. You can close the table — the session will be stopped.",
       "confirmClose": "Close the table",
       "errors": {

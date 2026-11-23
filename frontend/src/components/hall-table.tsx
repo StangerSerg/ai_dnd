@@ -8,9 +8,15 @@ export interface HallTable {
   language: string
   dmMode: string
   status: string
-  /** Seat role of the current user: 'dm' (team leader) | 'player' | null. */
+  /**
+   * Роль места текущего пользователя за столом: 'dm' | 'player' | 'spectator' |
+   * null. Только для отображения (бейдж). Лидерство больше НЕ следует из роли
+   * 'dm': в ai-режиме лидер сидит игроком. Лидера определяет отдельный флаг
+   * `isLeader` (из `is_host` ответа API).
+   */
   role: string | null
   mine: boolean
+  /** «Я лидер этого стола» — из `is_host` ответа API, а не из роли места. */
   isLeader: boolean
   seatsTaken: number | null
   seatsTotal: number | null

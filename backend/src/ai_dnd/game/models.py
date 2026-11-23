@@ -63,6 +63,8 @@ class GameSessionRow(Base):
     # seats_total — ёмкость (null = без ограничения), recruiting — виден в зале.
     recruiting: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     seats_total: Mapped[int | None] = mapped_column(Integer)
+    # Безопасное удаление: архивный стол не виден в списках/зале, запись остаётся в БД.
+    archived: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
 
 
 class GameEventRow(Base):

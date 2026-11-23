@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type Ref } from '
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { CopyIcon, EyeIcon, LogInIcon, PlusIcon } from 'lucide-react'
+import { CopyIcon, EyeIcon, LogInIcon, PlusIcon, UserIcon } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,6 +14,7 @@ import {
   ApiError,
   apiErrorMessage,
   portal,
+  type CharacterSummary,
   type DmMode,
   type Improvisation,
   type Locale,
@@ -25,6 +26,12 @@ import { useKnownSessions } from '@/stores/known-sessions'
 import { HallTableChoice, type HallTable } from '@/components/hall-table'
 import { HallCarousel } from '@/components/hall-carousel'
 import { HallRecruitingControl } from '@/components/hall-recruiting'
+import {
+  CreateVisibilityControl,
+  defaultCreateVisibility,
+  type CreateVisibilityValue,
+} from '@/components/create-visibility'
+import { AvatarImage } from '@/game/avatar'
 import '@/demo/demo.css'
 import '@/hall.css'
 
@@ -75,6 +82,8 @@ function CreateGameDialog() {
   const [language, setLanguage] = useState<Locale>('ru')
   const [dmMode, setDmMode] = useState<DmMode>('ai')
   const [improvisation, setImprovisation] = useState<Improvisation>('moderate')
+  const [characterId, setCharacterId] = useState('')
+  const [visibility, setVisibility] = useState<CreateVisibilityValue>(defaultCreateVisibility)
   const [error, setError] = useState<string | null>(null)
 
   const scenariosQuery = useQuery({ queryKey: ['scenarios'], queryFn: portal.listScenarios, enabled: open })
@@ -83,6 +92,16 @@ function CreateGameDialog() {
   // Кнопки RU/EN работают как фильтр каталога: язык задаётся кнопками, не сценарием.
   const visibleScenarios = scenarios.filter(item => item.language === language)
   const selectedScenario = visibleScenarios.find(item => item.version_id === versionId)
+
+  // В ai-режиме создатель садится за стол лидером И игроком, поэтому выбирает
+  // персонажа прямо здесь (без лишних шагов после создания). Совпадение шаблона
+  // персонажа и сценария проверяет бэкенд (template_mismatch). В human-режиме
+  // персонаж не нужен — создатель остаётся ведущим.
+  const charactersQuery = useQuery({ queryKey: ['characters'], queryFn: portal.listCharacters, enabled: open })
+  const characters: CharacterSummary[] = charactersQuery.data ?? []
+  const needCharacter = dmMode === 'ai'
+  const hasCharacters = characters.length > 0
+  const charactersEmpty = charactersQuery.isSuccess && !hasCharacters
 
   const mutation = useMutation({
     mutationFn: api.createSession,
@@ -94,14 +113,19 @@ function CreateGameDialog() {
         scenario: selectedScenario?.title,
         language,
         dm_mode: dmMode,
-        role: 'dm',
+        role: data.role === 'dm' ? 'dm' : 'player',
+        recruiting: data.recruiting,
+        seats_total: data.seats_total,
         created_at: new Date().toISOString(),
       })
       setOpen(false)
       setVersionId('')
+      setCharacterId('')
+      setVisibility(defaultCreateVisibility)
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
       void queryClient.invalidateQueries({ queryKey: ['open-tables'] })
+      void queryClient.invalidateQueries({ queryKey: ['characters'] })
       void navigate({ to: '/games/$sessionId', params: { sessionId: data.id } })
     },
     onError: err => setError(errorText(err)),
@@ -126,7 +150,27 @@ function CreateGameDialog() {
       setError(t('games:validation.versionId'))
       return
     }
-    mutation.mutate({ scenario_version_id: versionId.trim(), language, dm_mode: dmMode, improvisation })
+    if (needCharacter) {
+      if (charactersEmpty) {
+        setError(t('games:characterEmptyHint'))
+        return
+      }
+      if (!characterId) {
+        setError(t('games:validation.character'))
+        return
+      }
+    }
+    mutation.mutate({
+      scenario_version_id: versionId.trim(),
+      language,
+      dm_mode: dmMode,
+      improvisation,
+      ...(needCharacter ? { character_id: characterId } : {}),
+      recruiting: visibility.recruiting,
+      // Ёмкость задаётся только для публичного стола: у приватного она не
+      // показывается, и скрытый лимит не должен резать вход по приглашению.
+      seats_total: visibility.recruiting ? visibility.seats_total : null,
+    })
   }
 
   return (
@@ -134,7 +178,7 @@ function CreateGameDialog() {
       <DialogTrigger asChild>
         <Button data-testid="create-game"><PlusIcon />{t('games:create')}</Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="hall-create-dialog">
         <DialogHeader>
           <DialogTitle className="font-serif text-2xl">{t('games:dialogTitle')}</DialogTitle>
         </DialogHeader>
@@ -189,7 +233,49 @@ function CreateGameDialog() {
                 </Button>
               ))}
             </div>
+            <p className="text-xs text-muted-foreground" data-testid="create-dm-hint">
+              {needCharacter ? t('games:createDmHintAi') : t('games:createDmHintHuman')}
+            </p>
           </div>
+          {needCharacter && (
+            <div className="flex flex-col gap-2">
+              <Label>{t('games:character')}</Label>
+              {charactersQuery.isPending && <p role="status" className="text-sm text-muted-foreground">{t('loading')}</p>}
+              {charactersEmpty ? (
+                <p className="text-sm text-muted-foreground" data-testid="create-character-empty">{t('games:characterEmptyHint')}</p>
+              ) : hasCharacters ? (
+                <div className="create-character-picker" role="radiogroup" aria-label={t('games:character')}
+                  data-testid="create-character-picker">
+                  {characters.map(character => (
+                    <button
+                      key={character.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={characterId === character.id}
+                      className={`create-character-tile ${characterId === character.id ? 'is-selected' : ''}`}
+                      onClick={() => setCharacterId(character.id)}
+                      data-testid="create-character-tile"
+                      data-character-id={character.id}
+                    >
+                      {character.portrait ? (
+                        <span className="avatar-tile block size-12 shrink-0 overflow-hidden rounded-md">
+                          <AvatarImage name={character.name} image={character.portrait} />
+                        </span>
+                      ) : (
+                        <span className="grid size-12 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+                          <UserIcon className="size-6" aria-hidden="true" />
+                        </span>
+                      )}
+                      <span className="create-character-name">{character.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <Button asChild variant="link" size="sm" className="self-start px-0">
+                <Link to="/characters"><PlusIcon />{t('games:goCharacters')}</Link>
+              </Button>
+            </div>
+          )}
           <div className="flex flex-col gap-2">
             <Label>{t('games:improvisation')}</Label>
             <div className="flex flex-wrap gap-2">
@@ -201,9 +287,11 @@ function CreateGameDialog() {
               ))}
             </div>
           </div>
+          <CreateVisibilityControl value={visibility} onChange={setVisibility} disabled={mutation.isPending} />
           {error && <p className="text-sm text-destructive-foreground" role="alert" data-testid="create-game-error">{error}</p>}
           <DialogFooter>
-            <Button type="submit" disabled={mutation.isPending} data-testid="create-game-submit">{t('create')}</Button>
+            <Button type="submit" disabled={mutation.isPending || (needCharacter && !characterId)}
+              data-testid="create-game-submit">{t('create')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -521,12 +609,90 @@ function moodKey(id: string): string {
   return `games:hall.mood${hash % 6}`
 }
 
+// Лидерские действия над столом в зале: закрыть активный стол (stop) либо
+// удалить уже закрытый (archive). Оба — только лидер, оба требуют подтверждения
+// (второй клик). stop переводит стол в "stopped"; archive скрывает стол из
+// списков (идемпотентно). Бэкенд: archive работает только для stopped-стола,
+// иначе 409 session_not_stopped (локализуется через onErrorText выше).
+function LeaderTableActions({
+  table,
+  onClose,
+  onDelete,
+  pending,
+  error,
+}: {
+  table: HallTable
+  onClose: (table: HallTable) => void
+  onDelete: (table: HallTable) => void
+  pending: boolean
+  error: string | null
+}) {
+  const { t } = useTranslation()
+  const [confirm, setConfirm] = useState<'close' | 'delete' | null>(null)
+  const isActive = table.status === 'active'
+  const isStopped = table.status === 'stopped'
+
+  // После успешного закрытия стол становится stopped: сбрасываем подтверждение,
+  // чтобы показать кнопку удаления вместо «закрыть».
+  useEffect(() => {
+    if (confirm === 'close' && !isActive) setConfirm(null)
+  }, [confirm, isActive])
+
+  if (confirm === 'close') {
+    return (
+      <div className="hall-leader-action" data-testid="leader-close-confirm">
+        <p className="hall-leader-confirm-text">{t('games:hall.closeConfirm')}</p>
+        <div className="hall-leader-buttons">
+          <button type="button" className="text-button danger" disabled={pending}
+            onClick={() => onClose(table)} data-testid="leader-close-yes">{t('games:hall.closeYes')}</button>
+          <button type="button" className="text-button" disabled={pending}
+            onClick={() => setConfirm(null)} data-testid="leader-close-cancel">{t('games:hall.actionCancel')}</button>
+        </div>
+        {error && <p className="hall-recruit-error" role="alert" data-testid="leader-action-error">{error}</p>}
+      </div>
+    )
+  }
+  if (confirm === 'delete') {
+    return (
+      <div className="hall-leader-action" data-testid="leader-delete-confirm">
+        <p className="hall-leader-confirm-text">{t('games:hall.deleteConfirm')}</p>
+        <div className="hall-leader-buttons">
+          <button type="button" className="text-button danger" disabled={pending}
+            onClick={() => onDelete(table)} data-testid="leader-delete-yes">{t('games:hall.deleteYes')}</button>
+          <button type="button" className="text-button" disabled={pending}
+            onClick={() => setConfirm(null)} data-testid="leader-delete-cancel">{t('games:hall.actionCancel')}</button>
+        </div>
+        {error && <p className="hall-recruit-error" role="alert" data-testid="leader-action-error">{error}</p>}
+      </div>
+    )
+  }
+
+  if (!isActive && !isStopped) return null
+  return (
+    <div className="hall-leader-action">
+      {isActive && (
+        <button type="button" className="text-button" disabled={pending}
+          onClick={() => setConfirm('close')} data-testid="leader-close">{t('games:hall.closeTable')}</button>
+      )}
+      {isStopped && (
+        <button type="button" className="text-button danger" disabled={pending}
+          onClick={() => setConfirm('delete')} data-testid="leader-delete">{t('games:hall.deleteTable')}</button>
+      )}
+      {error && <p className="hall-recruit-error" role="alert" data-testid="leader-action-error">{error}</p>}
+    </div>
+  )
+}
+
 function HallDetails({
   table,
   onEnter,
   onApplyRecruiting,
   recruitPending,
   recruitError,
+  onCloseTable,
+  onDeleteTable,
+  leaderPending,
+  leaderError,
   ref,
 }: {
   table: HallTable
@@ -534,6 +700,10 @@ function HallDetails({
   onApplyRecruiting: (table: HallTable, next: RecruitingRequest) => void
   recruitPending: boolean
   recruitError: string | null
+  onCloseTable: (table: HallTable) => void
+  onDeleteTable: (table: HallTable) => void
+  leaderPending: boolean
+  leaderError: string | null
   ref?: Ref<HTMLElement>
 }) {
   const { t } = useTranslation()
@@ -606,6 +776,13 @@ function HallDetails({
               <InviteCopy token={table.inviteToken} />
             </div>
           )}
+          <LeaderTableActions
+            table={table}
+            onClose={onCloseTable}
+            onDelete={onDeleteTable}
+            pending={leaderPending}
+            error={leaderError}
+          />
         </>
       )}
 
@@ -668,6 +845,36 @@ export function GamesPage() {
     onError: error => setRecruitError(errorText(error)),
   })
 
+  // Лидерские операции над столом: закрыть активный стол (stop → stopped) и
+  // удалить уже закрытый (archive → скрывается из списков). Обе host-only;
+  // archive для не-stopped стола вернёт 409 session_not_stopped.
+  const [leaderError, setLeaderError] = useState<string | null>(null)
+  const invalidateHall = () => {
+    void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    void queryClient.invalidateQueries({ queryKey: ['open-tables'] })
+    void queryClient.invalidateQueries({ queryKey: ['hall-previews'] })
+  }
+  const stopMutation = useMutation({
+    mutationFn: (id: string) => portal.stopSession(id),
+    onSuccess: () => { setLeaderError(null); invalidateHall() },
+    onError: error => setLeaderError(errorText(error)),
+  })
+  const archiveMutation = useMutation({
+    mutationFn: (id: string) => portal.archiveSession(id),
+    onSuccess: () => { setLeaderError(null); invalidateHall() },
+    onError: error => setLeaderError(errorText(error)),
+  })
+  const leaderPending = stopMutation.isPending || archiveMutation.isPending
+
+  function closeTable(table: HallTable) {
+    setLeaderError(null)
+    stopMutation.mutate(table.id)
+  }
+  function deleteTable(table: HallTable) {
+    setLeaderError(null)
+    archiveMutation.mutate(table.id)
+  }
+
   const tables = useMemo<HallTable[]>(() => {
     const result: HallTable[] = []
     const seen = new Set<string>()
@@ -685,7 +892,7 @@ export function GamesPage() {
         status: session.status,
         role: session.role,
         mine: true,
-        isLeader: session.role === 'dm',
+        isLeader: Boolean(session.is_host),
         seatsTaken: session.seats_taken ?? openItem?.seats_taken ?? preview?.seats_taken ?? null,
         seatsTotal: override?.seats_total ?? session.seats_total ?? openItem?.seats_total ?? preview?.seats_total ?? null,
         hostName: session.host_name ?? openItem?.host_name ?? preview?.host_name ?? null,
@@ -816,6 +1023,10 @@ export function GamesPage() {
                   onApplyRecruiting={applyRecruiting}
                   recruitPending={recruitMutation.isPending}
                   recruitError={recruitError}
+                  onCloseTable={closeTable}
+                  onDeleteTable={deleteTable}
+                  leaderPending={leaderPending}
+                  leaderError={leaderError}
                 />
               )}
               <p className="floor-hint">{t('games:hall.floorHint')} <span>↗</span></p>

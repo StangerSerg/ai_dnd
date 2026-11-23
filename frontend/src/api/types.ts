@@ -13,11 +13,36 @@ export type VerifyEmailRequest = Schemas['VerifyEmailRequest']
 export type MePatch = Schemas['PatchMeRequest']
 export type CsrfToken = Schemas['CsrfResponse']
 export type Balance = Schemas['BalanceResponse']
-export type CreateSessionRequest = Schemas['CreateSessionRequest']
-export type CreateSessionResponse = Schemas['CreateSessionResponse']
+
+// Расширения контракта «лидер-игрок» описаны вручную: schema.d.ts будет
+// перегенерирован, когда бэкенд отдаст новый дамп OpenAPI (см. client.ts).
+
+// POST /api/sessions/ — character_id обязателен при dm_mode="ai": создатель
+// садится за свой стол лидером и игроком. recruiting/seats_total задают
+// публичность и ёмкость стола прямо при создании.
+export type CreateSessionRequest = Schemas['CreateSessionRequest'] & {
+  /** Персонаж создателя; обязателен при dm_mode="ai". */
+  character_id?: string
+  /** Публичный стол (виден в зале); по умолчанию false. */
+  recruiting?: boolean
+  /** Ёмкость стола 1..12; null = без ограничения. */
+  seats_total?: number | null
+}
+
+export type CreateSessionResponse = Schemas['CreateSessionResponse'] & {
+  recruiting: boolean
+  seats_total: number | null
+  /** Роль создателя: "player" (ai) | "dm" (human). */
+  role: string
+}
+
 export type JoinRequest = Schemas['JoinRequest']
 export type JoinResponse = Schemas['JoinResponse']
-export type GameSession = Schemas['SessionResponse']
+// GET /api/sessions/{id}: is_host — «я лидер этого стола». Лидерство больше
+// не следует из роли места "dm" (в ai-режиме лидер сидит игроком).
+export type GameSession = Schemas['SessionResponse'] & {
+  is_host: boolean
+}
 export type SeatInfo = Schemas['SeatInfo']
 export type GameEvent = Schemas['EventOut']
 export type DmMode = CreateSessionRequest['dm_mode']
@@ -42,6 +67,9 @@ export interface KnownSession {
   language: string
   dm_mode: string
   role: 'dm' | 'player' | 'spectator'
+  /** Публичность/ёмкость на момент создания (лидер может поменять их в зале). */
+  recruiting?: boolean
+  seats_total?: number | null
   created_at: string
 }
 
