@@ -1,4 +1,61 @@
-## 21.11 (текущая сессия) — альфа-стенд #44 принят; поворот на деплой на VM пользователя
+## 23.11 (ветка release/v0.1) — создатель стола = лидер+игрок, публичность при создании, удаление стола
+
+- **ВЕТКА: release/v0.1** (HEAD 2376cb8). Работа v0.2 закоммичена пользователем отдельно:
+  `release/v0.2` = 1408ef8 «Start of v0.2». Правки этой сессии v0.2-фич НЕ содержат
+  (например, `available_classes` сценария есть только в v0.2) — при слиянии v0.1→v0.2
+  ожидаются конфликты в `realtime/service.py`, `pages/games-page.tsx`, i18n-файлах.
+- **Решение пользователя:** создатель стола больше не занимает dm-место (Мастер — ИИ,
+  человеческое dm-место бессмысленно). При `dm_mode="ai"` он садится ЛИДЕРОМ + ИГРОКОМ:
+  `host_id` = создатель и у него место `role="player"` со своим персонажем; dm-место не
+  создаётся вовсе. При `dm_mode="human"` прежнее поведение сохранено (режим — заглушка,
+  но пользователь решил его оставить). Лидер-игрок НЕ видит секреты Мастера: фильтры
+  `can_see(dm=seat.role=="dm")` и `state_for` не менялись — при отсутствии dm-места
+  события `visibility=dm`, чужие `player:<id>` и `state.facts/summary` не отдаются никому.
+- **Backend:** `create_session` принимает `character_id` (обязателен для ai → иначе 422
+  `character_required`), `recruiting`, `seats_total` (1..12|null); актёр создателя входит
+  в СТАРТОВЫЕ setup/state (`ActorsJoined` не пишется), возвращает dataclass `CreatedSession`.
+  Общая валидация персонажа вынесена в `_player_seat_from_character` (используется и в
+  `join_session`). **Закрыта дыра авторизации:** добавлена проверка владельца персонажа
+  (`_require_character_owner`, 403 `character_forbidden`, в т.ч. `owner_id is None`) —
+  раньше сесть за стол можно было ЧУЖИМ персонажем. Лидерство определяется `host_id`,
+  клиенту отдаётся новым флагом `is_host` в `SessionResponse` и `SessionListItem`
+  (`host_id` не отдаётся). `leave_seat`/`kick_seat` защищают лидера по `host_id`
+  (422 `cannot_leave_host` / `cannot_kick_host`). `transfer_host`: если dm-места нет,
+  `host_id` просто переходит цели и она СОХРАНЯЕТ место и персонажа (ответ
+  `dm_seat_id`/`removed_seat_id` = null, сокеты не закрываются); при наличии dm-места
+  (human/старые столы) — прежняя логика. 409 `dm_seat_not_found` удалён как невозможный.
+- **Удаление стола (безопасное):** миграция `0016_session_archived`
+  (`game_sessions.archived bool default false`, down_revision 0015) +
+  `POST /api/sessions/{id}/archive` → `{archived:true}`: только лидер, только
+  `status=="stopped"` (иначе 409 `session_not_stopped`), идемпотентно, ставит
+  `recruiting=false`, пишет аудит `session.archive`. Записи из БД НЕ удаляются.
+  Архив скрыт из `list_sessions`, `open-tables`, `by-invite` (404 `invalid_invite` —
+  существование не раскрывается), `join_session`, `observe_session`. Админ-надзор
+  архив видит (`SessionItem.archived`, `SessionDetail.archived`).
+- **Frontend:** диалог создания стола — пикер своего персонажа (портрет+имя, empty-state
+  со ссылкой на /characters, submit заблокирован без выбора) и новый компонент
+  `components/create-visibility.tsx` (переключатель публичный/приватный + ёмкость 1..12/∞,
+  по умолчанию приватный и 4). Ёмкость уходит в запрос только для публичного стола
+  (иначе приватный стол получал невидимый лимит 4 и `table_full` на 5-м приглашённом).
+  `isLeader` везде считается по `is_host`, а не по `role==='dm'`. Передача лидерства в
+  ai-режиме не выгоняет никого в зал (`host-leave-dialog` получил `staysAtTable`,
+  `use-session-socket` допускает null-ids, `game-page` различает legacy/human-ветку).
+  В зале у лидера появились «Закрыть стол» (stop, для active) и «Удалить стол»
+  (archive, для stopped), оба с подтверждением вторым кликом.
+- **Гейты Root (все зелёные):** backend ruff check / ruff format --check / mypy (202 файла) /
+  lint-imports (3 kept) / pytest 819 passed, 26 deselected; frontend typecheck / lint / build
+  (предсуществующий chunk-warning). i18n паритет ru/en — 828/828 ключей, расхождений нет.
+  Из правок исполнителя Root откатил одно: придуманную проверку
+  `class_id not in content.classes` → 422 `class_not_available` (в v0.1 такого гейта нет,
+  он появился бы как новое ограничение на вход).
+- **НЕ проверено (долг):** миграция 0016 не накатана (PostgreSQL/Redis не подняты,
+  Docker Desktop выключен) — нужен `alembic upgrade head` + `alembic check`; интеграционные
+  тесты не запускались; рантайм-смок (create → игрок-лидер → opening от воркера →
+  публичный стол в зале → посадка второго → передача лидерства → stop → archive) не прогнан;
+  вёрстка диалога создания и лидерских кнопок в зале глазами не смотрелась.
+  Новые тесты не писались (отложенный тестовый долг до рабочего прототипа).
+
+## 21.11 — альфа-стенд #44 принят; поворот на деплой на VM пользователя
 
 - **#44 Альфа-стенд ПРИНЯТ Root.** Дефолты биллинга подняты (тестировщики не платят):
   `BillingSettings` daily_free/user_daily/session_daily=100000 кредитов ($10),

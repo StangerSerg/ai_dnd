@@ -40,6 +40,8 @@ class SessionItem(BaseModel):
     last_seq: int
     created_at: datetime
     host_name: str | None
+    # Безопасное удаление: надзор видит архивные столы (админка не фильтрует архив).
+    archived: bool = False
 
 
 class SessionsResponse(BaseModel):
@@ -66,6 +68,7 @@ class SessionDetail(BaseModel):
     setup: dict[str, Any]
     state: dict[str, Any]
     seats: list[SeatDetail]
+    archived: bool = False
 
 
 class StopRequest(BaseModel):
@@ -213,6 +216,7 @@ def build_supervision_router(get_current_user: GetCurrentUser) -> APIRouter:
                     last_seq=row.last_seq,
                     created_at=row.created_at,
                     host_name=host_name,
+                    archived=row.archived,
                 )
                 for row, count, host_name in rows
             ],
@@ -258,6 +262,7 @@ def build_supervision_router(get_current_user: GetCurrentUser) -> APIRouter:
             setup=row.setup,
             state=row.state,
             seats=seats,
+            archived=row.archived,
         )
 
     @router.get("/sessions/{session_id}/events")

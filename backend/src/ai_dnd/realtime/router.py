@@ -20,6 +20,7 @@ from ai_dnd.realtime import service
 from ai_dnd.realtime.auth import CurrentUser, GetCurrentUser
 from ai_dnd.realtime.models import SeatRow
 from ai_dnd.realtime.schemas import (
+    ArchiveResponse,
     ChatHistoryResponse,
     ChatMessageOut,
     ChatRequest,
@@ -62,6 +63,8 @@ class SessionListItem(BaseModel):
     seats_taken: int = 0
     host_name: str | None = None
     invite_token: str | None = None
+    # Лидерство определяется host_id сессии (не ролью места); host_id не отдаётся.
+    is_host: bool
 
 
 class ComplaintRequest(BaseModel):
@@ -103,7 +106,10 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
                 await db.execute(
                     select(GameSessionRow, SeatRow.role)
                     .join(SeatRow, SeatRow.session_id == GameSessionRow.id)
-                    .where(SeatRow.user_id == user.user_id)
+                    .where(
+                        SeatRow.user_id == user.user_id,
+                        GameSessionRow.archived.is_(False),
+                    )
                     .order_by(GameSessionRow.created_at.desc())
                 )
             ).all()
@@ -159,6 +165,7 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
                 seats_taken=players.get(row.id, 0),
                 host_name=hosts.get(row.host_id) if row.host_id is not None else None,
                 invite_token=row.invite_token,
+                is_host=row.host_id == user.user_id,
             )
             for row, role in rows
         ]
@@ -169,11 +176,19 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
         user: Annotated[CurrentUser, Depends(get_current_user)],
         resources: Annotated[Resources, Depends(get_resources)],
     ) -> CreateSessionResponse:
+        """Новый стол: ai-режим — создатель лидер+игрок (character_id обязателен),
+        human-режим — создатель занимает dm-место. Публичность и ёмкость — сразу."""
         try:
-            session_id, token = await service.create_session(resources.db_sessions, body, user)
+            created = await service.create_session(resources.db_sessions, body, user)
         except service.SessionError as error:
             raise HTTPException(error.status_code, error.code) from error
-        return CreateSessionResponse(id=session_id, invite_token=token)
+        return CreateSessionResponse(
+            id=created.session_id,
+            invite_token=created.invite_token,
+            recruiting=created.recruiting,
+            seats_total=created.seats_total,
+            role=created.role,
+        )
 
     @router.post("/join", response_model=JoinResponse)
     async def join_session(
@@ -229,7 +244,8 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
         """Добровольный выход игрока/наблюдателя: своё место удаляется без бана.
 
         Повторная посадка возможна через зал/приглашение (в отличие от кика).
-        Хост (dm) встать из-за стола не может — 422 cannot_leave_host.
+        Лидер стола (host_id сессии, в ai-режиме — игрок) встать из-за стола не
+        может — 422 cannot_leave_host.
         """
         try:
             await service.leave_seat(resources.db_sessions, resources.redis, session_id, user)
@@ -249,8 +265,12 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
         sessions = resources.db_sessions
         async with sessions() as db:
             row = await db.scalar(
-                select(GameSessionRow).where(GameSessionRow.invite_token == invite_token)
+                select(GameSessionRow).where(
+                    GameSessionRow.invite_token == invite_token,
+                    GameSessionRow.archived.is_(False),
+                )
             )
+            # Архивный стол считается несуществующим: факт существования не раскрывается.
             if row is None:
                 raise HTTPException(404, {"code": "invalid_invite"})
             title: str | None = None
@@ -303,6 +323,7 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
                     .where(
                         GameSessionRow.status == "active",
                         GameSessionRow.recruiting.is_(True),
+                        GameSessionRow.archived.is_(False),
                     )
                     .order_by(GameSessionRow.created_at.desc())
                 )
@@ -368,6 +389,7 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
             seats=[service.seat_info(item, setup, dice_styles=dice_styles) for item in seats],
             events=service.visible_events(events, seat),
             spectators=sum(1 for item in seats if item.role == "spectator"),
+            is_host=row.host_id == user.user_id,
         )
 
     @router.get("/{session_id}/events", response_model=EventsResponse)
@@ -450,11 +472,13 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
         user: Annotated[CurrentUser, Depends(get_current_user)],
         resources: Annotated[Resources, Depends(get_resources)],
     ) -> TransferHostResponse:
-        """Хост передаёт ведение игроку и встаёт из-за стола: своё место он теряет.
+        """Лидер передаёт лидерство игроку.
 
-        Цель — player-место этой сессии; dm-место переходит новому хосту,
-        player-место цели удаляется без бана. Комната узнаёт control-сообщением
-        ``host_transferred`` (не seat_update: это не кик).
+        Цель — player-место этой сессии. Human-режим (есть dm-место, в т.ч. старые
+        столы): dm-место переходит новому лидеру, player-место цели удаляется без
+        бана. Ai-режим (dm-места нет): host_id переходит к цели, она сохраняет своё
+        место и персонажа; dm_seat_id/removed_seat_id — null. Комната узнаёт
+        control-сообщением ``host_transferred`` (не seat_update: это не кик).
         """
         try:
             dm_seat_id, new_host_user_id, removed_seat_id = await service.transfer_host(
@@ -467,6 +491,23 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
             new_host_user_id=new_host_user_id,
             removed_seat_id=removed_seat_id,
         )
+
+    @router.post("/{session_id}/archive", response_model=ArchiveResponse)
+    async def archive_session(
+        session_id: uuid.UUID,
+        user: Annotated[CurrentUser, Depends(get_current_user)],
+        resources: Annotated[Resources, Depends(get_resources)],
+    ) -> ArchiveResponse:
+        """Безопасное удаление стола лидером: стол скрывается из списков, запись в БД остаётся.
+
+        Только для остановленного стола (иначе 409 session_not_stopped); идемпотентно:
+        повторный вызов на архивном столе возвращает archived=true.
+        """
+        try:
+            archived = await service.archive_session(resources.db_sessions, session_id, user)
+        except service.SessionError as error:
+            raise HTTPException(error.status_code, error.code) from error
+        return ArchiveResponse(archived=archived)
 
     @router.post("/{session_id}/stop", response_model=StopSessionResponse)
     async def stop_session(

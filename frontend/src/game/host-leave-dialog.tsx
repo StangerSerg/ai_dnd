@@ -12,8 +12,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-// Выход ведущего из-за стола: передача ведения игроку (transfer-host) либо
+// Выход лидера из-за стола: передача лидерства игроку (transfer-host) либо
 // закрытие стола (stop), если игроков нет. Диалог в стиле kick-dialog.
+//
+// `staysAtTable` (ai-режим): лидер после передачи остаётся за столом своим
+// персонажем — показываем формулировки «передать лидерство и остаться».
+// Без него (human-режим/старые столы): лидер теряет dm-место и уходит в зал.
 
 export interface HostLeaveTarget {
   id: string
@@ -29,12 +33,14 @@ export function hostLeaveErrorText(error: unknown, t: TFunction): string {
   return t('game:hostLeave.errors.network')
 }
 
-export function HostLeaveDialog({ open, targets, busy, error, onConfirm, onCancel }: {
+export function HostLeaveDialog({ open, targets, busy, error, staysAtTable = false, onConfirm, onCancel }: {
   open: boolean
-  /** Места игроков с user_id, которым можно передать ведение. */
+  /** Места игроков с user_id, которым можно передать лидерство. */
   targets: HostLeaveTarget[]
   busy: boolean
   error: string | null
+  /** true в ai-режиме: после передачи лидер остаётся за столом своим персонажем. */
+  staysAtTable?: boolean
   /** seatId выбранного игрока → transfer-host; null (игроков нет) → stop. */
   onConfirm: (seatId: string | null) => void
   onCancel: () => void
@@ -48,13 +54,25 @@ export function HostLeaveDialog({ open, targets, busy, error, onConfirm, onCance
     if (open) setSelected(targets[0]?.id ?? null)
   }, [open, targets])
 
+  const transferBody = hasTargets
+    ? (staysAtTable ? t('game:hostLeave.transferBodyStay') : t('game:hostLeave.transferBody'))
+    : t('game:hostLeave.closeBody')
+  const confirmLabel = hasTargets
+    ? (staysAtTable ? t('game:hostLeave.confirmTransferStay') : t('game:hostLeave.confirmTransfer'))
+    : t('game:hostLeave.confirmClose')
+  // В ai-режиме при передаче лидер остаётся за столом — это не «выход», поэтому
+  // заголовок другой. Закрытие стола (игроков нет) и human-режим → «Встать из-за стола».
+  const titleLabel = hasTargets && staysAtTable
+    ? t('game:hostLeave.transferTitleStay')
+    : t('game:leaveTableTitle')
+
   return (
     <Dialog open={open} onOpenChange={next => { if (!next && !busy) onCancel() }}>
       <DialogContent className="kick-dialog host-leave-dialog" data-testid="host-leave-dialog">
         <DialogHeader>
-          <DialogTitle className="font-serif text-2xl">{t('game:leaveTableTitle')}</DialogTitle>
+          <DialogTitle className="font-serif text-2xl">{titleLabel}</DialogTitle>
           <DialogDescription>
-            {hasTargets ? t('game:hostLeave.transferBody') : t('game:hostLeave.closeBody')}
+            {transferBody}
           </DialogDescription>
         </DialogHeader>
         {hasTargets && (
@@ -89,7 +107,7 @@ export function HostLeaveDialog({ open, targets, busy, error, onConfirm, onCance
             disabled={busy || (hasTargets && !selected)}
             data-testid="host-leave-confirm"
           >
-            {hasTargets ? t('game:hostLeave.confirmTransfer') : t('game:hostLeave.confirmClose')}
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

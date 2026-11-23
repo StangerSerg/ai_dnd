@@ -20,12 +20,17 @@ export interface SeatUpdate {
   mute_source?: MuteSource
 }
 
-/** Эфемерный control передачи ведения: без seq, рассылается всем клиентам. */
+/**
+ * Эфемерный control передачи лидерства: без seq, рассылается всем клиентам.
+ * В ai-режиме dm_seat_id/removed_seat_id приходят null: новый лидер сохраняет
+ * своё место игрока, прежний лидер тоже остаётся игроком — никто не уходит.
+ * В human-режиме (и старых столах) ids непустые.
+ */
 export interface HostTransferred {
   session_id: string
-  dm_seat_id: string
+  dm_seat_id: string | null
   new_host_user_id: string
-  removed_seat_id: string
+  removed_seat_id: string | null
 }
 
 /** Эфемерный control остановки стола ведущим: без seq. */
@@ -172,15 +177,13 @@ export function useSessionSocket(
             }
           } else if ((data as { type: string }).type === 'host_transferred') {
             const payload = (data as { payload?: Partial<HostTransferred> }).payload
-            if (payload
-              && typeof payload.dm_seat_id === 'string'
-              && typeof payload.new_host_user_id === 'string'
-              && typeof payload.removed_seat_id === 'string') {
+            // new_host_user_id обязателен; seat-ids в ai-режиме приходят null.
+            if (payload && typeof payload.new_host_user_id === 'string') {
               onHostTransferredRef.current?.({
                 session_id: typeof payload.session_id === 'string' ? payload.session_id : sessionId,
-                dm_seat_id: payload.dm_seat_id,
+                dm_seat_id: typeof payload.dm_seat_id === 'string' ? payload.dm_seat_id : null,
                 new_host_user_id: payload.new_host_user_id,
-                removed_seat_id: payload.removed_seat_id,
+                removed_seat_id: typeof payload.removed_seat_id === 'string' ? payload.removed_seat_id : null,
               })
             }
           } else if ((data as { type: string }).type === 'session_stopped') {

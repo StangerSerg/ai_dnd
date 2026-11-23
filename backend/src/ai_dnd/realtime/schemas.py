@@ -18,11 +18,20 @@ class CreateSessionRequest(_Schema):
     language: str = "ru"
     dm_mode: Literal["ai", "human"] = "ai"
     improvisation: Improvisation = "moderate"
+    # Персонаж создателя: обязателен при dm_mode="ai" (создатель садится игроком).
+    character_id: uuid.UUID | None = None
+    # Публичность и ёмкость можно задать сразу, не открывая набор отдельным запросом.
+    recruiting: bool = False
+    seats_total: int | None = Field(default=None, ge=1, le=12)
 
 
 class CreateSessionResponse(_Schema):
     id: uuid.UUID
     invite_token: str
+    recruiting: bool
+    seats_total: int | None = None
+    # Роль создателя за столом: "player" (ai) или "dm" (human).
+    role: str
 
 
 class JoinRequest(_Schema):
@@ -69,15 +78,22 @@ class TransferHostRequest(_Schema):
 
 
 class TransferHostResponse(_Schema):
-    dm_seat_id: uuid.UUID
+    # dm_seat_id/removed_seat_id — None в ai-режиме: dm-места нет, цель сохраняет своё место.
+    dm_seat_id: uuid.UUID | None = None
     new_host_user_id: uuid.UUID
-    removed_seat_id: uuid.UUID
+    removed_seat_id: uuid.UUID | None = None
 
 
 class StopSessionResponse(_Schema):
     """Остановка стола лидером: стол закрыт (идемпотентно stopped=True)."""
 
     stopped: bool = True
+
+
+class ArchiveResponse(_Schema):
+    """Безопасное удаление стола лидером: стол скрыт из списков, запись в БД остаётся."""
+
+    archived: bool = True
 
 
 class EventOut(_Schema):
@@ -126,6 +142,8 @@ class SessionResponse(_Schema):
     events: list[EventOut]
     # Счётчик наблюдателей (3.8): read-only места, не входят в ёмкость стола.
     spectators: int = 0
+    # Лидерство определяется host_id сессии (не ролью места); host_id клиенту не отдаётся.
+    is_host: bool
 
 
 class EventsResponse(_Schema):

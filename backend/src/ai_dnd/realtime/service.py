@@ -8,6 +8,7 @@
 import secrets
 import uuid
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from redis.asyncio import Redis
@@ -21,7 +22,7 @@ from ai_dnd.characters.schemas import Character
 from ai_dnd.characters.service import TemplateMismatchError, build_sheet
 from ai_dnd.config import get_settings
 from ai_dnd.game.actors import actor_from_sheet
-from ai_dnd.game.content import new_session_state
+from ai_dnd.game.content import GameContent, new_session_state
 from ai_dnd.game.events import ActorsJoined
 from ai_dnd.game.journal import DbJournal
 from ai_dnd.game.models import GameEventRow, GameSessionRow
@@ -69,6 +70,17 @@ class SessionError(Exception):
         self.status_code = status_code
         self.code = code
         super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class CreatedSession:
+    """Результат создания стола: id, invite-токен, публичность, ёмкость и роль создателя."""
+
+    session_id: uuid.UUID
+    invite_token: str
+    recruiting: bool
+    seats_total: int | None
+    role: str
 
 
 async def find_seat(
@@ -164,10 +176,56 @@ def state_for(state: dict[str, Any], seat: SeatRow) -> dict[str, Any]:
     return {**state, "facts": [], "summary": "", "summary_through_turn": 0}
 
 
+def _require_character_owner(character: CharacterRow, user: CurrentUser) -> None:
+    """За стол можно сесть только СВОИМ персонажем (как в characters.router: owner-only).
+
+    Персонаж без владельца (legacy/консольные) через портал недоступен — тоже 403.
+    """
+    if character.owner_id is None or character.owner_id != user.user_id:
+        raise SessionError(403, "character_forbidden")
+
+
+def _player_seat_from_character(
+    content: GameContent, character: CharacterRow, setup: SessionSetup
+) -> tuple[Actor, PlayerSeat]:
+    """Актёр и место игрока по персонажу: общая валидация для create_session и join_session.
+
+    Ошибки: 409 template_mismatch (персонаж создан по другому шаблону), 422
+    character_invalid (значения не проходят проверку шаблона).
+    """
+    try:
+        character_data = Character.model_validate(character.data)
+        sheet = build_sheet(character_data, content.template)
+    except TemplateMismatchError as error:
+        raise SessionError(409, "template_mismatch") from error
+    except SheetValuesError as error:
+        raise SessionError(422, "character_invalid") from error
+    class_id = character_data.class_id
+    actor_id = f"pc_{character.id.hex}"
+    display = str(sheet.values.get("name") or character.name)
+    granted, cure_wounds = class_grants(content.classes, content.skills, class_id, sheet)
+    actor = actor_from_sheet(actor_id, display, sheet, skills=granted)
+    player_seat = PlayerSeat(
+        player_id=f"p{len(setup.seats) + 1}",
+        actor_id=actor_id,
+        name=display,
+        summary=_summary(sheet.values),
+        skills=granted,
+        cure_wounds=cure_wounds,
+    )
+    return actor, player_seat
+
+
 async def create_session(
     sessions: Sessions, body: CreateSessionRequest, user: CurrentUser
-) -> tuple[uuid.UUID, str]:
-    """Новая сессия по версии сценария; создатель занимает место ведущего."""
+) -> CreatedSession:
+    """Новая сессия по версии сценария; создатель — лидер стола (host_id).
+
+    dm_mode="ai": настоящего Мастера ведёт ИИ, dm-место НЕ создаётся; создатель
+    садится игроком со своим персонажем (character_id обязателен). dm_mode="human":
+    прежнее поведение — создатель занимает dm-место, персонаж не нужен.
+    Публичность (recruiting) и ёмкость (seats_total) задаются сразу при создании.
+    """
     settings = get_settings()
     try:
         content = await load_game_content_from_db(
@@ -185,11 +243,32 @@ async def create_session(
         )
     if slug is None:
         raise SessionError(404, "scenario_version_not_found")
+    character: CharacterRow | None = None
+    if body.dm_mode == "ai":
+        if body.character_id is None:
+            raise SessionError(422, "character_required")
+        async with sessions() as db:
+            character = await db.get(CharacterRow, body.character_id)
+        if character is None:
+            raise SessionError(404, "character_not_found")
+        _require_character_owner(character, user)
     ruleset_id, template_id = await version_refs(sessions, body.scenario_version_id)
     setup = SessionSetup(
         scenario=slug, language=content.language, improvisation=body.improvisation, seats=()
     )
-    state = new_session_state(content, ())
+    actors: tuple[Actor, ...] = ()
+    if character is not None:
+        # Создатель-игрок попадает в СТАРТОВОЕ состояние сессии: событие ActorsJoined
+        # не пишется, opening сгенерирует воркер.
+        actor, player_seat = _player_seat_from_character(content, character, setup)
+        setup = SessionSetup(
+            scenario=slug,
+            language=content.language,
+            improvisation=body.improvisation,
+            seats=(player_seat,),
+        )
+        actors = (actor,)
+    state = new_session_state(content, actors)
     journal = await DbJournal.create(
         sessions,
         setup,
@@ -207,13 +286,27 @@ async def create_session(
         row.host_id = user.user_id
         row.invite_token = token
         row.dm_mode = body.dm_mode
-        seat = SeatRow(
-            session_id=session_id,
-            role="dm",
-            controller="human",
-            user_id=user.user_id,
-            actor_id=DM_ACTOR_ID,
-        )
+        row.recruiting = body.recruiting
+        row.seats_total = body.seats_total
+        if character is not None:
+            seat = SeatRow(
+                session_id=session_id,
+                role="player",
+                controller="human",
+                user_id=user.user_id,
+                character_id=character.id,
+                actor_id=f"pc_{character.id.hex}",
+            )
+            role = "player"
+        else:
+            seat = SeatRow(
+                session_id=session_id,
+                role="dm",
+                controller="human",
+                user_id=user.user_id,
+                actor_id=DM_ACTOR_ID,
+            )
+            role = "dm"
         db.add(seat)
         await db.flush()
         db.add(SeatReadRow(seat_id=seat.id))
@@ -223,7 +316,13 @@ async def create_session(
         from ai_dnd.tasks import dm_open_session
 
         await dm_open_session.kiq(str(session_id))
-    return session_id, token
+    return CreatedSession(
+        session_id=session_id,
+        invite_token=token,
+        recruiting=body.recruiting,
+        seats_total=body.seats_total,
+        role=role,
+    )
 
 
 async def join_session(
@@ -235,8 +334,12 @@ async def join_session(
     """
     settings = get_settings()
     async with sessions() as db:
+        # Архивный стол считается несуществующим: вход по приглашению закрыт.
         session_id = await db.scalar(
-            select(GameSessionRow.id).where(GameSessionRow.invite_token == body.invite_token)
+            select(GameSessionRow.id).where(
+                GameSessionRow.invite_token == body.invite_token,
+                GameSessionRow.archived.is_(False),
+            )
         )
     if session_id is None:
         raise SessionError(404, "invalid_invite")
@@ -279,32 +382,14 @@ async def join_session(
         character = await db.get(CharacterRow, body.character_id)
         if character is None:
             raise SessionError(404, "character_not_found")
+        _require_character_owner(character, user)
         content = await load_game_content_from_db(
             sessions, row.scenario_version_id, settings.content_dir
         )
-        try:
-            character_data = Character.model_validate(character.data)
-            sheet = build_sheet(character_data, content.template)
-        except TemplateMismatchError as error:
-            raise SessionError(409, "template_mismatch") from error
-        except SheetValuesError as error:
-            raise SessionError(422, "character_invalid") from error
-        actor_id = f"pc_{character.id.hex}"
-        if setup.seat(actor_id) is not None:
+        actor, player_seat = _player_seat_from_character(content, character, setup)
+        if setup.seat(player_seat.actor_id) is not None:
             raise SessionError(409, "character_taken")
-        display = str(sheet.values.get("name") or character.name)
-        granted, cure_wounds = class_grants(
-            content.classes, content.skills, character_data.class_id, sheet
-        )
-        actor = actor_from_sheet(actor_id, display, sheet, skills=granted)
-        player_seat = PlayerSeat(
-            player_id=f"p{len(setup.seats) + 1}",
-            actor_id=actor_id,
-            name=display,
-            summary=_summary(sheet.values),
-            skills=granted,
-            cure_wounds=cure_wounds,
-        )
+        actor_id = player_seat.actor_id
         new_setup = setup.model_copy(update={"seats": (*setup.seats, player_seat)})
         state = SessionState.model_validate(row.state)
         new_state = state.model_copy(update={"rules": state.rules.with_actor(actor)})
@@ -354,7 +439,8 @@ async def observe_session(
         row = await db.scalar(
             select(GameSessionRow).where(GameSessionRow.id == session_id).with_for_update()
         )
-        if row is None:
+        # Архивный стол считается несуществующим: наблюдение закрыто.
+        if row is None or row.archived:
             raise SessionError(404, "session_not_found")
         if row.status != "active":
             raise SessionError(409, "session_stopped")
@@ -428,17 +514,22 @@ async def leave_seat(
     """Добровольный выход игрока/наблюдателя: своё место удаляется БЕЗ бана.
 
     В отличие от kick, SessionKickRow не создаётся — сесть снова можно через
-    зал/приглашение. Хост (dm) не «встаёт» (422): остановка сессии — отдельная
-    механика. После удаления пересчитывается окно действий (как в kick_seat):
-    если оставшиеся игроки уже ответили, окно закрывается и ход ставится.
+    зал/приглашение. Лидер стола не «встаёт» (422): лидерство определяется
+    host_id сессии (в ai-режиме лидер — игрок), а не ролью места; остановка
+    сессии — отдельная механика. После удаления пересчитывается окно действий
+    (как в kick_seat): если оставшиеся игроки уже ответили, окно закрывается
+    и ход ставится.
     """
     async with sessions() as db, db.begin():
+        row = await db.get(GameSessionRow, session_id)
+        if row is None:
+            raise SessionError(404, "session_not_found")
         seat = await db.scalar(
             select(SeatRow).where(SeatRow.session_id == session_id, SeatRow.user_id == user.user_id)
         )
         if seat is None:
             raise SessionError(404, "seat_not_found")
-        if seat.role == "dm":
+        if seat.role == "dm" or (row.host_id is not None and seat.user_id == row.host_id):
             raise SessionError(422, "cannot_leave_host")
         if seat.role not in ("player", "spectator"):
             raise SessionError(404, "seat_not_found")
@@ -558,10 +649,16 @@ async def kick_seat(
     """
     await _require_host(sessions, session_id, user)
     async with sessions() as db, db.begin():
+        row = await db.get(GameSessionRow, session_id)
+        if row is None:
+            raise SessionError(404, "session_not_found")
         seat = await db.get(SeatRow, seat_id)
         if seat is None or seat.session_id != session_id:
             raise SessionError(404, "seat_not_found")
         if seat.role == "dm":
+            raise SessionError(422, "cannot_kick_host")
+        # Лидера (host_id сессии) кикнуть нельзя: в ai-режиме лидер — игрок.
+        if row.host_id is not None and seat.user_id == row.host_id:
             raise SessionError(422, "cannot_kick_host")
         if seat.role not in ("player", "spectator"):
             raise SessionError(404, "seat_not_found")
@@ -596,17 +693,22 @@ async def transfer_host(
     session_id: uuid.UUID,
     seat_id: uuid.UUID,
     user: CurrentUser,
-) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
-    """Хост «встаёт из-за стола»: ведение передаётся игроку, место хоста исчезает.
+) -> tuple[uuid.UUID | None, uuid.UUID, uuid.UUID | None]:
+    """Передача лидерства игроку; возвращает (dm_seat_id, new_host_user_id, removed_seat_id).
 
-    В одной транзакции: dm-место получает user_id цели (actor_id остаётся «dm»,
-    character_id — None), player-место цели удаляется (seat_reads каскадом),
-    host_id сессии переходит к цели. Прежний хост остаётся без места, бан не
-    создаётся. Цель — player-место этой сессии с user_id: чужое/несуществующее
-    место — 404 seat_not_found; dm/spectator/место без пользователя — 422
-    invalid_transfer_target. После коммита — эфемерный control ``host_transferred``
-    (не seat_update removed=True: удаление своего места фронтенд считает киком)
-    и пересчёт окна действий, как в leave_seat/kick_seat.
+    Цель — player-место этой сессии с user_id: чужое/несуществующее место — 404
+    seat_not_found; dm/spectator/место без пользователя — 422 invalid_transfer_target;
+    остановленный стол — 409 session_stopped. Прежний лидер остаётся игроком.
+
+    Если в сессии ЕСТЬ dm-место (human-режим и старые ai-столы): прежнее поведение —
+    dm-место получает user_id цели (actor_id остаётся «dm»), player-место цели
+    удаляется без бана, в ответе оба id заполнены. Если dm-места НЕТ (ai-режим):
+    host_id просто переходит к цели, цель СОХРАНЯЕТ своё player-место и персонажа,
+    dm_seat_id/removed_seat_id — None (никто не теряет место, сокеты не закрываются).
+
+    После коммита — эфемерный control ``host_transferred`` (не seat_update
+    removed=True: удаление своего места фронтенд считает киком) и пересчёт окна
+    действий, как в leave_seat/kick_seat.
     """
     await _require_host(sessions, session_id, user)
     async with sessions() as db, db.begin():
@@ -620,18 +722,24 @@ async def transfer_host(
         dm_seat = await db.scalar(
             select(SeatRow).where(SeatRow.session_id == session_id, SeatRow.role == "dm")
         )
-        if dm_seat is None:
-            raise SessionError(409, "dm_seat_not_found")
         target = await db.get(SeatRow, seat_id)
         if target is None or target.session_id != session_id:
             raise SessionError(404, "seat_not_found")
         if target.role != "player" or target.user_id is None:
             raise SessionError(422, "invalid_transfer_target")
-        dm_seat_id = dm_seat.id
         new_host_user_id = target.user_id
-        removed_actor_id = target.actor_id
-        dm_seat.user_id = new_host_user_id
         row.host_id = new_host_user_id
+        dm_seat_id: uuid.UUID | None = None
+        removed_seat_id: uuid.UUID | None = None
+        removed_actor_id: str | None = None
+        if dm_seat is not None:
+            # Human-режим (в т.ч. старые столы): dm-место переходит цели, её
+            # player-место удаляется.
+            dm_seat_id = dm_seat.id
+            removed_seat_id = target.id
+            removed_actor_id = target.actor_id
+            dm_seat.user_id = new_host_user_id
+            await db.delete(target)
         await audit.record(
             db,
             user.user_id,
@@ -641,17 +749,16 @@ async def transfer_host(
             {
                 "old_host_user_id": str(user.user_id),
                 "new_host_user_id": str(new_host_user_id),
-                "dm_seat_id": str(dm_seat_id),
+                "dm_seat_id": str(dm_seat_id) if dm_seat_id is not None else None,
                 "removed_actor_id": removed_actor_id,
             },
         )
-        await db.delete(target)
     await publish_host_transferred(
         redis,
         session_id,
         dm_seat_id=dm_seat_id,
         new_host_user_id=new_host_user_id,
-        removed_seat_id=seat_id,
+        removed_seat_id=removed_seat_id,
     )
     # Локальный импорт: turns ссылается на service, обратная зависимость — только тут.
     from ai_dnd.realtime.turns import try_close_and_dispatch, window_key
@@ -660,7 +767,7 @@ async def transfer_host(
     if window_raw is not None:
         window_id = window_raw.decode("utf-8") if isinstance(window_raw, bytes) else str(window_raw)
         await try_close_and_dispatch(sessions, redis, session_id, window_id)
-    return dm_seat_id, new_host_user_id, seat_id
+    return dm_seat_id, new_host_user_id, removed_seat_id
 
 
 async def stop_session_host(
@@ -687,6 +794,33 @@ async def stop_session_host(
             )
     if not already_stopped:
         await publish_session_stopped(redis, session_id, stopped=True)
+    return True
+
+
+async def archive_session(sessions: Sessions, session_id: uuid.UUID, user: CurrentUser) -> bool:
+    """Безопасное удаление стола лидером: стол скрывается из списков, запись остаётся в БД.
+
+    Только для остановленного стола (status == "stopped"), иначе 409
+    session_not_stopped. Идемпотентно: повторный вызов на архивном столе
+    возвращает archived=True без ошибки. Эффект: archived=True, recruiting=False
+    (стол уходит из зала); в Redis ничего не публикуется — сокетов архив не рвёт.
+    """
+    await _require_host(sessions, session_id, user)
+    async with sessions() as db, db.begin():
+        row = await db.scalar(
+            select(GameSessionRow).where(GameSessionRow.id == session_id).with_for_update()
+        )
+        if row is None:
+            raise SessionError(404, "session_not_found")
+        if row.archived:
+            return True
+        if row.status != "stopped":
+            raise SessionError(409, "session_not_stopped")
+        row.archived = True
+        row.recruiting = False
+        await audit.record(
+            db, user.user_id, "session.archive", "session", str(session_id), {"archived": True}
+        )
     return True
 
 

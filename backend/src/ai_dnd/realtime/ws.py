@@ -118,13 +118,17 @@ async def _forward(
             # иначе он продолжал бы получать dm-события) и сокет повышенного
             # игрока (его player-место удалено) закрываются — переподключение
             # получит актуальное место. Остальные участники продолжают сеанс.
-            if (
-                event.get("type") == "host_transferred"
-                and isinstance(payload, dict)
-                and str(seat.id) in (payload.get("dm_seat_id"), payload.get("removed_seat_id"))
-            ):
-                await websocket.close(code=4403)
-                return
+            # В ai-режиме dm_seat_id/removed_seat_id — null: никто не теряет
+            # место, сокеты не закрываются (клиенты сами обновят сессию).
+            if event.get("type") == "host_transferred" and isinstance(payload, dict):
+                closed_seat_ids = {
+                    value
+                    for value in (payload.get("dm_seat_id"), payload.get("removed_seat_id"))
+                    if isinstance(value, str)
+                }
+                if str(seat.id) in closed_seat_ids:
+                    await websocket.close(code=4403)
+                    return
             continue
         await _send(websocket, sessions, seat, stream, event)
 
