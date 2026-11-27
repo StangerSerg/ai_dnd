@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Own project icon: flat recurve bow with string and arrow -->
+  <path d="M18 6c14 6 22 16 22 26s-8 20-22 26l-3-5c11-5 18-13 18-21S26 16 15 11z" fill="#8c6f4a"/>
+  <path d="M18 6c14 6 22 16 22 26s-8 20-22 26l-1.5-2.5C28 50 36 41 36 32S28 14 16.5 8.5z" fill="#a5875f"/>
+  <rect x="16.5" y="8" width="1.6" height="48" fill="#e8dcc0"/>
+  <rect x="10" y="30.8" width="40" height="2.4" fill="#c8a56a"/>
+  <path d="M54 32l-9-5v10z" fill="#aab3bd"/>
+  <path d="M10 32l6-4v8z" fill="#b0563f"/>
+</svg>

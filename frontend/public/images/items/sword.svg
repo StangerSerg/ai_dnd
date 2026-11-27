@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Own project icon: flat longsword, gold hilt / steel blade -->
+  <path d="M32 3l5 7v26l-5 5-5-5V10z" fill="#aab3bd"/>
+  <path d="M32 3l5 7v26l-5 5z" fill="#7d8894"/>
+  <path d="M30 12h4v24h-4z" fill="#cfd6dd"/>
+  <rect x="18" y="40" width="28" height="6" rx="2" fill="#c8a56a"/>
+  <rect x="28" y="46" width="8" height="11" rx="2" fill="#5d4a33"/>
+  <circle cx="32" cy="59" r="4" fill="#f2cf8e"/>
+</svg>

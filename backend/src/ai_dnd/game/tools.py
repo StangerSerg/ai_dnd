@@ -32,12 +32,20 @@ from ai_dnd.game.events import (
     NpcAttitudeChanged,
     NpcDied,
     NpcMoved,
+    RestTaken,
     Revealed,
     RevealedKind,
     SceneChanged,
 )
 from ai_dnd.game.presence import effective_location
-from ai_dnd.game.session import InventoryItem, SessionSetup, SessionState, apply_events
+from ai_dnd.game.session import (
+    InventoryItem,
+    SessionSetup,
+    SessionState,
+    apply_events,
+    item_stock,
+    spend_item_event,
+)
 from ai_dnd.game.spells import CURE_WOUNDS_TOOL, FIRST_LEVEL_SLOT, SPELL_SLOT_PREFIX
 from ai_dnd.i18n import localize
 from ai_dnd.rules.actions import (
@@ -54,10 +62,10 @@ from ai_dnd.rules.actions import (
 from ai_dnd.rules.combat import allies_of, incapacitated_by
 from ai_dnd.rules.engine import ItemMechanics, RulesEngine, buff_condition_id, item_condition_id
 from ai_dnd.rules.errors import RulesError
-from ai_dnd.rules.events import CheckResolved, ConditionRemoved, DiceRolled, Healed
+from ai_dnd.rules.events import CheckResolved, ConditionRemoved, DiceRolled, Event, Healed
 from ai_dnd.rules.rng import Rng
 from ai_dnd.rules.ruleset import Difficulty
-from ai_dnd.rules.state import HIT_POINTS
+from ai_dnd.rules.state import HIT_POINTS, AttackProfile
 from ai_dnd.scenarios.schemas import (
     MAX_ITEM_ENHANCEMENT,
     Item,
@@ -70,6 +78,37 @@ from ai_dnd.scenarios.schemas import (
 )
 
 MAX_FACT_LENGTH = 300
+
+# Предметные инструменты: при scenario.items_enabled=False все они запрещены
+# (ToolCallError items_disabled), не рекламируются в промптах и не выдаются лутом.
+ITEM_TOOLS = frozenset(
+    {"grant_item", "equip_item", "unequip_item", "use_item", "spend_item", "enhance_item"}
+)
+
+# An improvised item has no authored mechanics, price or provenance. Keep this a
+# deliberately small allowlist: names outside it need an authored scenario item.
+_TRIVIAL_PROPS = frozenset(
+    {
+        "button",
+        "plain button",
+        "pebble",
+        "ordinary pebble",
+        "twig",
+        "scrap of cloth",
+        "blank sheet of paper",
+        "пуговица",
+        "обычная пуговица",
+        "камешек",
+        "обычный камешек",
+        "веточка",
+        "лоскут ткани",
+        "пустой лист бумаги",
+    }
+)
+
+
+def _trivial_prop(name: str) -> bool:
+    return " ".join(name.casefold().split()) in _TRIVIAL_PROPS
 
 
 class ToolCallError(Exception):
@@ -156,7 +195,8 @@ class GrantItemArgs(_Args):
     actor_id: str = Field(description="Id of the character who gets the item.")
     item_id: str | None = Field(default=None, description="Id of a scenario item.")
     name: str | None = Field(
-        default=None, description="Name of an improvised minor item, when there is no item_id."
+        default=None,
+        description="Name of a trivial, non-valuable prop only, when there is no item_id.",
     )
 
 
@@ -173,6 +213,16 @@ class UnequipItemArgs(_Args):
 class UseItemArgs(_Args):
     actor_id: str = Field(description="Id of the character who uses the item (its owner).")
     item_id: str = Field(description="Id of a consumable scenario item in their inventory.")
+
+
+class SpendItemArgs(_Args):
+    actor_id: str = Field(description="Id of the character who spends the item (its owner).")
+    item_id: str = Field(description="Id of the scenario item in their inventory.")
+    quantity: int = Field(default=1, ge=1, strict=True, description="How many units to spend.")
+    target_id: str | None = Field(
+        default=None,
+        description="Actor to repair, only for an item with repair_hp. Required for such items.",
+    )
 
 
 class EnhanceItemArgs(_Args):
@@ -197,6 +247,11 @@ class AdjustResourceArgs(_Args):
 class CastCureWoundsArgs(_Args):
     caster_id: str = Field(description="Party member casting Cure Wounds from the input.")
     target_id: str = Field(description="Living party member to heal. A target at 0 HP is valid.")
+
+
+class TakeRestArgs(_Args):
+    actor_id: str = Field(description="Living, able party member requesting the scene's rest.")
+    rest_id: str = Field(description="Exact id of the current scene's authored rest.")
 
 
 class ProtectArgs(_Args):
@@ -262,6 +317,7 @@ class DmTools:
         self._setup = setup
         self._engine = engine
         self._rng = rng
+        self._items_enabled = content.scenario.scenario.items_enabled
         self._tools = {tool.name: tool for tool in _TOOLS}
         # Политика прототипа: улика из on_success доступна только через успешную
         # заготовленную проверку, даже если её можно было бы найти иным способом.
@@ -277,7 +333,15 @@ class DmTools:
         }
 
     def specs(self) -> tuple[ToolSpec, ...]:
-        return tuple(ToolSpec.from_model(tool.name, tool.description, tool.args) for tool in _TOOLS)
+        return tuple(
+            ToolSpec.from_model(tool.name, tool.description, tool.args)
+            for tool in _TOOLS
+            if (self._items_enabled or tool.name not in ITEM_TOOLS)
+            and (
+                tool.name != "take_rest"
+                or any(scene.rest for scene in self._content.scenario.scenes)
+            )
+        )
 
     def execute(self, state: SessionState, call: ToolCall) -> ToolOutcome:
         tool = self._tools.get(call.name)
@@ -294,6 +358,10 @@ class DmTools:
             ]
             return _error("invalid_arguments", problems=problems[:10])
         try:
+            if call.name in ITEM_TOOLS and not self._items_enabled:
+                raise ToolCallError("items_disabled")
+            if call.name == "take_rest" and self._scene(state).rest is None:
+                raise ToolCallError("rest_not_in_scene")
             return tool.handler(self, state, args)
         except ToolCallError as problem:
             return _error(problem.code, **problem.details)
@@ -367,17 +435,109 @@ class DmTools:
                 if consequence.text:
                     result["author_hint"] = consequence.text
                 revealed = []
+                findable: list[str] = []
                 for entity_id in consequence.reveal:
                     kind_of = self._entity_kind(entity_id)
+                    if kind_of == "item":
+                        # Предмет-находка выдаётся механикой только при успехе
+                        # и только при включённом тумблере предметов.
+                        if resolved.outcome.succeeded and self._items_enabled:
+                            findable.append(entity_id)
+                        continue
                     if kind_of is not None and not state.is_revealed(entity_id):
                         events.append(Revealed(entity_id=entity_id, kind=kind_of))
                         revealed.append({"id": entity_id, "text": self._entity_text(entity_id)})
                 if revealed:
                     result["revealed"] = revealed
+                # Случайная находка: один из ещё не выданных партии предметов.
+                candidates = [
+                    item_id
+                    for item_id in findable
+                    if all(item_stock(state, member, item_id) == 0 for member in self._setup.party)
+                ]
+                if candidates:
+                    found = self._scenario_item(self._rng.choice(candidates))
+                    events.extend(self._grant_events(state, actor, found, found.quantity))
+                    result["found"] = {
+                        "id": found.id,
+                        "text": self._entity_text(found.id),
+                        "to": actor,
+                    }
         result["instruction"] = "Narrate this outcome as is. Do not change, soften or reroll it."
         return ToolOutcome(events=events, result=result)
 
     # --- Бой ---
+
+    def take_rest(self, state: SessionState, args: TakeRestArgs) -> ToolOutcome:
+        rest = self._scene(state).rest
+        if rest is None or rest.id != args.rest_id:
+            raise ToolCallError("rest_not_in_scene")
+        if state.rules.combat is not None:
+            raise ToolCallError("rest_in_combat")
+        caller_id = self._actor(state, args.actor_id, party_only=True)
+        caller = state.rules.actors[caller_id]
+        if (
+            caller.hp is None
+            or caller.hp.current == 0
+            or incapacitated_by(self._engine.ruleset, caller) is not None
+        ):
+            raise ToolCallError("actor_cannot_act")
+        if rest.id in state.used_rests:
+            raise ToolCallError("rest_already_taken")
+        if not any(
+            state.encounter_outcomes.get(encounter_id) == "party"
+            for encounter_id in rest.after_encounters
+        ):
+            raise ToolCallError(
+                "rest_requires_victory", after_encounters=list(rest.after_encounters)
+            )
+
+        living = tuple(
+            actor_id for actor_id in self._setup.party if not state.rules.actors[actor_id].dead
+        )
+        events: list[JournalEvent] = [
+            RestTaken(rest_id=rest.id, name=rest.name, actor_ids=living, resources=rest.resources)
+        ]
+        current = state
+        for actor_id in living:
+            actor = current.rules.actors[actor_id]
+            for resource_id in rest.resources:
+                resource = actor.resources.get(resource_id)
+                if resource is None or resource.current >= resource.max:
+                    continue
+                if resource_id == HIT_POINTS:
+                    recovery = self._engine.resolve(
+                        current.rules,
+                        HealAction(
+                            target_id=actor_id,
+                            source_id=None,
+                            amount=str(resource.max - resource.current),
+                        ),
+                        self._rng,
+                    )
+                else:
+                    recovery = self._engine.resolve(
+                        current.rules,
+                        ResourceAction(
+                            actor_id=actor_id,
+                            resource=resource_id,
+                            delta=resource.max - resource.current,
+                        ),
+                        self._rng,
+                    )
+                events.extend(recovery)
+                current = apply_events(current, recovery)
+                actor = current.rules.actors[actor_id]
+        return ToolOutcome(
+            events=events,
+            result={
+                "rest": rest.name,
+                "rest_id": rest.id,
+                "instruction": (
+                    "Narrate only the committed recovery events; this opportunity is now used."
+                ),
+            },
+        )
 
     def start_combat(self, state: SessionState, args: StartCombatArgs) -> ToolOutcome:
         scenario = self._content.scenario
@@ -425,6 +585,68 @@ class DmTools:
                 ),
             },
         )
+
+    def loot_events(self, state: SessionState) -> list[JournalEvent]:
+        """Дроп победного энкаунтера: вызывается только при CombatEnded(winner="party").
+
+        Лут обоснован самим энкаунтером, поэтому гейты grant_item здесь не применяются;
+        события выдачи — те же (Revealed + ItemGranted). Бой и энкаунтер стартуют один
+        раз, поэтому таблица разыгрывается один раз на энкаунтер.
+        """
+        if not self._items_enabled:
+            return []
+        if not state.started_encounters:
+            return []
+        encounter_id = state.started_encounters[-1]
+        encounter = next(
+            (item for item in self._content.scenario.encounters if item.id == encounter_id), None
+        )
+        if encounter is None or not encounter.loot:
+            return []
+        living = tuple(
+            actor_id
+            for actor_id in self._setup.party
+            if actor_id in state.rules.actors and not state.rules.actors[actor_id].dead
+        )
+        if not living:
+            return []
+        events: list[JournalEvent] = []
+        after = state
+        recipient = 0
+        for entry in encounter.loot:
+            # Пер-милле бросок штатным rng: шанс 1.0 выпадает всегда, детерминирован seed'ом.
+            if self._rng.randint(1, 1000) > entry.chance * 1000:
+                continue
+            item = next(
+                (item for item in self._content.scenario.items if item.id == entry.item_id), None
+            )
+            if item is None:
+                continue
+            grant = self._grant_events(after, living[recipient % len(living)], item, entry.quantity)
+            events.extend(grant)
+            after = apply_events(after, grant)
+            recipient += 1
+        return events
+
+    def victory_fact_events(self, state: SessionState) -> list[JournalEvent]:
+        """Факты победы энкаунтера: вызывается только при CombatEnded(winner="party").
+
+        Факты объявлены в контенте, поэтому гейты note_fact здесь не применяются;
+        уже записанные факты пропускаются — повтор не дублирует запись.
+        """
+        if not state.started_encounters:
+            return []
+        encounter_id = state.started_encounters[-1]
+        encounter = next(
+            (item for item in self._content.scenario.encounters if item.id == encounter_id), None
+        )
+        if encounter is None or not encounter.victory_facts:
+            return []
+        return [
+            FactNoted(text=text[:MAX_FACT_LENGTH])
+            for text in encounter.victory_facts
+            if text not in state.facts
+        ]
 
     # --- Мир ---
 
@@ -523,6 +745,7 @@ class DmTools:
     def grant_item(self, state: SessionState, args: GrantItemArgs) -> ToolOutcome:
         actor = self._actor(state, args.actor_id, party_only=True)
         improvisation = self._setup.improvisation
+        scene = self._scene(state)
         events: list[JournalEvent] = []
         if args.item_id is not None:
             item = next(
@@ -534,24 +757,28 @@ class DmTools:
                 owned.item_id == item.id for items in state.inventory.values() for owned in items
             ):
                 return ToolOutcome(result={"already_granted": item.id})
-            if improvisation == "strict" and item.id not in self._scene(state).items:
-                raise ToolCallError("item_not_in_scene", allowed=list(self._scene(state).items))
-            if not state.is_revealed(item.id):
-                events.append(Revealed(entity_id=item.id, kind="item"))
-            events.append(
-                ItemGranted(
-                    actor_id=actor,
-                    item_id=item.id,
-                    name=item.name,
-                    quantity=item.quantity,
-                    enhancement=item.enhancement,
+            if item.id not in scene.items:
+                # In moderate/free, a prepared check can also establish an item in
+                # this scene, but only after its actual outcome revealed the item.
+                check_reveals_item = any(
+                    item.id in consequence.reveal
+                    for check in scene.checks
+                    for consequence in (check.on_success, check.on_failure)
+                    if consequence is not None
                 )
-            )
+                if improvisation == "strict" or not (
+                    check_reveals_item and state.is_revealed(item.id)
+                ):
+                    raise ToolCallError("item_not_in_scene", allowed=list(scene.items))
+            events.extend(self._grant_events(state, actor, item, item.quantity))
             name = item.name
         elif args.name:
             if improvisation == "strict":
                 raise ToolCallError("improvised_items_not_allowed")
-            name = args.name.strip()[:80]
+            name = " ".join(args.name.split())
+            if not _trivial_prop(name):
+                raise ToolCallError("improvised_item_not_trivial")
+            name = name[:80]
             events.append(ItemGranted(actor_id=actor, item_id=None, name=name))
         else:
             raise ToolCallError("item_id_or_name_required")
@@ -573,6 +800,16 @@ class DmTools:
             replaced_id = next((other for other, slot in worn.items() if slot == item.slot), None)
             if replaced_id is not None:
                 replaced = self._owned_item(state, actor, replaced_id).name
+        attack = None
+        if item.attack is not None:
+            attack = AttackProfile(
+                name=localized_name(item.attack.name, self._setup.language),
+                bonus=item.attack.bonus,
+                damage=item.attack.damage,
+                damage_type=item.attack.damage_type or item.damage_type,
+                ammo=item.ammo,
+                thrown_item=item.id if item.consume_on == "throw" else None,
+            )
         events: list[JournalEvent] = [
             ItemEquipped(
                 actor_id=actor,
@@ -580,9 +817,12 @@ class DmTools:
                 name=entry.name,
                 slot=item.slot,
                 replaced=replaced,
+                attack=attack,
             )
         ]
         result: dict[str, Any] = {"equipped": entry.name, "slot": item.slot, "to": actor}
+        if attack is not None:
+            result["attack"] = attack.name
         if replaced is not None:
             result["stowed"] = replaced
         result["instruction"] = (
@@ -646,6 +886,53 @@ class DmTools:
             result["instruction"] = (
                 "The scroll is spent. Narrate the casting and resolve the spell's effects "
                 "with the usual tools (checks, saves, damage); there is no spell engine."
+            )
+        return ToolOutcome(events=events, result=result)
+
+    def spend_item(self, state: SessionState, args: SpendItemArgs) -> ToolOutcome:
+        actor = self._actor(state, args.actor_id, party_only=True)
+        self._owned_item(state, actor, args.item_id)
+        item = self._scenario_item(args.item_id)
+        if item.consumable_effect is not None:
+            raise ToolCallError("use_item_required", item=item.id)
+        if args.target_id is not None and item.repair_hp is None:
+            raise ToolCallError("item_cannot_repair", item=item.id)
+        if item.repair_hp is not None and args.target_id is None:
+            raise ToolCallError("repair_target_required", item=item.id)
+        spent = spend_item_event(state, actor, item.id, args.quantity, "spend")
+        if spent is None:
+            raise ToolCallError(
+                "insufficient_quantity",
+                available=item_stock(state, actor, item.id),
+                requested=args.quantity,
+            )
+        events: list[JournalEvent] = [spent]
+        result: dict[str, Any] = {
+            "spent": spent.name,
+            "by": actor,
+            "quantity": args.quantity,
+            "remaining": item_stock(state, actor, item.id) - args.quantity,
+        }
+        if args.target_id is not None and item.repair_hp is not None:
+            target = self._actor(state, args.target_id)
+            if state.rules.actor(target).hp is None:
+                raise ToolCallError("target_has_no_hit_points", target_id=target)
+            heal = HealAction(
+                target_id=target, source_id=actor, amount=str(item.repair_hp * args.quantity)
+            )
+            healing = self._engine.resolve(state.rules, heal, self._rng)
+            events.extend(healing)
+            healed = next(event for event in healing if isinstance(event, Healed))
+            result["target_id"] = target
+            result["healed"] = healed.amount
+            result["hp_after"] = healed.hp_after
+            result["instruction"] = (
+                "The units are already spent. Narrate the repair and the healed amount as is."
+            )
+        else:
+            result["instruction"] = (
+                "The units are already spent. Narrate the action they paid for and resolve its "
+                "effects with the usual tools; never refund or duplicate the cost in narration."
             )
         return ToolOutcome(events=events, result=result)
 
@@ -714,16 +1001,19 @@ class DmTools:
             raise ToolCallError("caster_cannot_act")
         if target.hp is None:
             raise ToolCallError("target_has_no_hit_points")
-        slot = caster.resources.get(FIRST_LEVEL_SLOT)
-        if slot is None or slot.current < 1:
-            raise ToolCallError("no_first_level_spell_slot")
-
-        cost = ResourceAction(actor_id=caster.id, resource=FIRST_LEVEL_SLOT, delta=-1)
         heal = HealAction(target_id=target.id, source_id=caster.id, amount=capability.healing_dice)
-        # Разрешаем оба действия на временном состоянии. Оркестратор фиксирует весь пакет.
-        spent, after_cost = self._engine.run(state.rules, cost, self._rng)
+        spent: list[Event] = []
+        slots_remaining = None
+        after_cost = state.rules
+        if capability.consumes_slot:
+            slot = caster.resources.get(FIRST_LEVEL_SLOT)
+            if slot is None or slot.current < 1:
+                raise ToolCallError("no_first_level_spell_slot")
+            cost = ResourceAction(actor_id=caster.id, resource=FIRST_LEVEL_SLOT, delta=-1)
+            # Разрешаем оба действия на временном состоянии. Оркестратор фиксирует весь пакет.
+            spent, after_cost = self._engine.run(state.rules, cost, self._rng)
+            slots_remaining = after_cost.actor(caster.id).resources[FIRST_LEVEL_SLOT].current
         healing = self._engine.resolve(after_cost, heal, self._rng)
-        slots_remaining = after_cost.actor(caster.id).resources[FIRST_LEVEL_SLOT].current
         rolled = next(event for event in healing if isinstance(event, DiceRolled))
         healed = next(event for event in healing if isinstance(event, Healed))
         return ToolOutcome(
@@ -816,6 +1106,25 @@ class DmTools:
         )
 
     # --- Внутреннее ---
+
+    @staticmethod
+    def _grant_events(
+        state: SessionState, actor: str, item: Item, quantity: int
+    ) -> list[JournalEvent]:
+        """Общий путь выдачи сценарного предмета: grant_item и победный лут."""
+        events: list[JournalEvent] = []
+        if not state.is_revealed(item.id):
+            events.append(Revealed(entity_id=item.id, kind="item"))
+        events.append(
+            ItemGranted(
+                actor_id=actor,
+                item_id=item.id,
+                name=item.name,
+                quantity=quantity,
+                enhancement=item.enhancement,
+            )
+        )
+        return events
 
     def _actor(self, state: SessionState, actor_id: str, *, party_only: bool = False) -> str:
         party = self._setup.party
@@ -981,8 +1290,9 @@ _TOOLS: tuple[_Tool, ...] = (
     ),
     _Tool(
         "grant_item",
-        "Give an item to a character: a scenario item by id or, if allowed, a minor "
-        "improvised item by name.",
+        "Give an item to a character only when the current scene grounds its scenario "
+        "item_id, or (outside strict mode) a trivial non-valuable prop by name. "
+        "Never turn a player's claimed find into a world fact without scene evidence.",
         GrantItemArgs,
         DmTools.grant_item,
     ),
@@ -1012,6 +1322,19 @@ _TOOLS: tuple[_Tool, ...] = (
         DmTools.use_item,
     ),
     _Tool(
+        "spend_item",
+        "Spend consumable scenario items from the character's own inventory when an action "
+        "actually consumes them: spare parts for repairs, a torpedo launched outside combat, "
+        "a fireship ramming its target. An item with repair_hp heals the target actor "
+        "(repair_hp per unit, the engine caps at maximum HP) and requires target_id; "
+        "other items are simply deducted and their effect is narrated/resolved with the "
+        "usual tools. Ammunition and thrown weapons are spent by the combat mechanics "
+        "automatically — do not spend them here for combat attacks. Potions and scrolls "
+        "require use_item instead.",
+        SpendItemArgs,
+        DmTools.spend_item,
+    ),
+    _Tool(
         "enhance_item",
         "Sharpen a scenario weapon the character owns by one step (+1 to attack and "
         "damage, up to +3). Requires an in-world service — a smith or master who does "
@@ -1028,9 +1351,17 @@ _TOOLS: tuple[_Tool, ...] = (
         DmTools.adjust_resource,
     ),
     _Tool(
+        "take_rest",
+        "Use only the current scene's authored rest after a recorded party victory over one "
+        "of its required encounters. Once per rest id; restores only the authored resources "
+        "of living party members. Do not call without a player's request to rest.",
+        TakeRestArgs,
+        DmTools.take_rest,
+    ),
+    _Tool(
         CURE_WOUNDS_TOOL,
-        "Cast prepared first-level Cure Wounds outside combat. The engine spends one slot "
-        "and rolls healing in a single operation.",
+        "Cast a prepared healing capability outside combat. The engine rolls healing and "
+        "spends a first-level slot only if the capability consumes one.",
         CastCureWoundsArgs,
         DmTools.cast_cure_wounds,
     ),

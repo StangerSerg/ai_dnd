@@ -5,6 +5,7 @@ scenario:
   language: ru
   ruleset: dnd5e-srd@1
   sheet_template: srd5-basic@1
+  class_pack: fantasy-core
   start_scene: tavern
   synopsis: >-
     В деревне Мельничий Брод пропадают люди. Их похищает культ Змея: пленников держат

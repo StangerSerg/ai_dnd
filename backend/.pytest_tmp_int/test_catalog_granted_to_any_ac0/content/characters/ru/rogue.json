@@ -1,0 +1,47 @@
+{
+  "template": "srd5-basic@1",
+  "values": {
+    "name": "Мира",
+    "race": "Полурослик (легконогий)",
+    "char_class": "Плут",
+    "background": "Бродяга",
+    "alignment": "Хаотично-добрый",
+    "level": 3,
+    "xp": 900,
+    "str": 8,
+    "dex": 17,
+    "con": 12,
+    "int": 13,
+    "wis": 12,
+    "cha": 14,
+    "save_dex_prof": true,
+    "save_int_prof": true,
+    "acrobatics_prof": "proficient",
+    "deception_prof": "proficient",
+    "investigation_prof": "proficient",
+    "perception_prof": "proficient",
+    "sleight_of_hand_prof": "expertise",
+    "stealth_prof": "expertise",
+    "armor_type": "light",
+    "armor_base": 11,
+    "speed": 25,
+    "hit_die": 8,
+    "hp": {"current": 21},
+    "hit_dice": {"current": 3},
+    "attacks": [
+      {"name": "Рапира", "bonus": 5, "damage": "1d8+3", "damage_type": "piercing", "notes": "фехтовальное"},
+      {"name": "Короткий лук", "bonus": 5, "damage": "1d6+3", "damage_type": "piercing", "notes": "дистанция 80/320 фт"}
+    ],
+    "gp": 22,
+    "inventory": [
+      {"name": "Кожаный доспех", "qty": 1, "notes": "КД 11"},
+      {"name": "Рапира", "qty": 1, "notes": ""},
+      {"name": "Короткий лук", "qty": 1, "notes": ""},
+      {"name": "Стрелы", "qty": 20, "notes": ""},
+      {"name": "Воровские инструменты", "qty": 1, "notes": ""},
+      {"name": "Набор взломщика", "qty": 1, "notes": ""}
+    ],
+    "features": "Скрытая атака: +2к6 урона раз в ход, если есть преимущество или рядом с целью союзник.\nХитрое действие: Рывок, Отход или Засада бонусным действием.\nКомпетентность: Скрытность и Ловкость рук.\nАрхетип «Вор»: Быстрые руки, Мастер-верхолаз.\nВезучий: выпавшую на к20 единицу можно перебросить.",
+    "proficiencies": "Лёгкие доспехи, простое оружие, ручные арбалеты, длинные мечи, рапиры, короткие мечи. Воровские инструменты. Языки: Общий, Полуросликов, воровской жаргон."
+  }
+}

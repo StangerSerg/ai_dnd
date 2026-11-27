@@ -26,6 +26,7 @@ import { useKnownSessions } from '@/stores/known-sessions'
 import { HallTableChoice, type HallTable } from '@/components/hall-table'
 import { HallCarousel } from '@/components/hall-carousel'
 import { HallRecruitingControl } from '@/components/hall-recruiting'
+import { CreateToneControl, type Tone } from '@/components/create-tone'
 import {
   CreateVisibilityControl,
   defaultCreateVisibility,
@@ -82,6 +83,7 @@ function CreateGameDialog() {
   const [language, setLanguage] = useState<Locale>('ru')
   const [dmMode, setDmMode] = useState<DmMode>('ai')
   const [improvisation, setImprovisation] = useState<Improvisation>('moderate')
+  const [tone, setTone] = useState<Tone>('default')
   const [characterId, setCharacterId] = useState('')
   const [visibility, setVisibility] = useState<CreateVisibilityValue>(defaultCreateVisibility)
   const [error, setError] = useState<string | null>(null)
@@ -98,10 +100,16 @@ function CreateGameDialog() {
   // персонажа и сценария проверяет бэкенд (template_mismatch). В human-режиме
   // персонаж не нужен — создатель остаётся ведущим.
   const charactersQuery = useQuery({ queryKey: ['characters'], queryFn: portal.listCharacters, enabled: open })
-  const characters: CharacterSummary[] = charactersQuery.data ?? []
+  const classesQuery = useQuery({
+    queryKey: ['scenario-classes', versionId],
+    queryFn: () => portal.scenarioClasses(versionId),
+    enabled: open && Boolean(versionId),
+  })
+  const characters: CharacterSummary[] = (charactersQuery.data ?? []).filter(character =>
+    classesQuery.data?.includes(character.class_id ?? '') ?? false)
   const needCharacter = dmMode === 'ai'
   const hasCharacters = characters.length > 0
-  const charactersEmpty = charactersQuery.isSuccess && !hasCharacters
+  const charactersEmpty = charactersQuery.isSuccess && classesQuery.isSuccess && !hasCharacters
 
   const mutation = useMutation({
     mutationFn: api.createSession,
@@ -122,6 +130,7 @@ function CreateGameDialog() {
       setVersionId('')
       setCharacterId('')
       setVisibility(defaultCreateVisibility)
+      setTone('default')
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['sessions'] })
       void queryClient.invalidateQueries({ queryKey: ['open-tables'] })
@@ -155,22 +164,24 @@ function CreateGameDialog() {
         setError(t('games:characterEmptyHint'))
         return
       }
-      if (!characterId) {
+      if (!characterId || !characters.some(character => character.id === characterId)) {
         setError(t('games:validation.character'))
         return
       }
     }
-    mutation.mutate({
+    const request = {
       scenario_version_id: versionId.trim(),
       language,
       dm_mode: dmMode,
       improvisation,
+      tone,
       ...(needCharacter ? { character_id: characterId } : {}),
       recruiting: visibility.recruiting,
       // Ёмкость задаётся только для публичного стола: у приватного она не
       // показывается, и скрытый лимит не должен резать вход по приглашению.
       seats_total: visibility.recruiting ? visibility.seats_total : null,
-    })
+    }
+    mutation.mutate(request)
   }
 
   return (
@@ -240,7 +251,7 @@ function CreateGameDialog() {
           {needCharacter && (
             <div className="flex flex-col gap-2">
               <Label>{t('games:character')}</Label>
-              {charactersQuery.isPending && <p role="status" className="text-sm text-muted-foreground">{t('loading')}</p>}
+              {(charactersQuery.isPending || classesQuery.isPending) && <p role="status" className="text-sm text-muted-foreground">{t('loading')}</p>}
               {charactersEmpty ? (
                 <p className="text-sm text-muted-foreground" data-testid="create-character-empty">{t('games:characterEmptyHint')}</p>
               ) : hasCharacters ? (
@@ -287,6 +298,7 @@ function CreateGameDialog() {
               ))}
             </div>
           </div>
+          {dmMode === 'ai' && <CreateToneControl value={tone} onChange={setTone} disabled={mutation.isPending} />}
           <CreateVisibilityControl value={visibility} onChange={setVisibility} disabled={mutation.isPending} />
           {error && <p className="text-sm text-destructive-foreground" role="alert" data-testid="create-game-error">{error}</p>}
           <DialogFooter>
@@ -311,10 +323,19 @@ function JoinGameDialog() {
   const [error, setError] = useState<string | null>(null)
 
   const charactersQuery = useQuery({ queryKey: ['characters'], queryFn: portal.listCharacters, enabled: open })
-  const characters = charactersQuery.data ?? []
+  const previewQuery = useQuery({
+    queryKey: ['invite-preview', invite.trim()],
+    queryFn: () => portal.sessionPreview(invite.trim()),
+    enabled: open && invite.trim().length >= 32,
+    retry: false,
+  })
+  const preview = previewQuery.data
+  const characters = (charactersQuery.data ?? []).filter(character =>
+    character.template_id === preview?.sheet_template_id
+    && (preview.available_classes ?? []).includes(character.class_id ?? ''))
   const hasList = characters.length > 0
   // D2: an empty 200 [] means "no characters yet" (create path), not "API down".
-  const listEmpty = charactersQuery.isSuccess && !hasList
+  const listEmpty = charactersQuery.isSuccess && previewQuery.isSuccess && !hasList
   const listFailed = charactersQuery.isError
 
   const mutation = useMutation({
@@ -350,7 +371,7 @@ function JoinGameDialog() {
       setError(t('games:characterEmptyHint'))
       return
     }
-    if (hasList && !id) {
+    if (hasList && !characters.some(character => character.id === id)) {
       setError(t('games:validation.character'))
       return
     }
@@ -379,7 +400,7 @@ function JoinGameDialog() {
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="character-id">{t('games:character')}</Label>
-            {charactersQuery.isPending && <p role="status" className="text-sm text-muted-foreground">{t('loading')}</p>}
+            {(charactersQuery.isPending || previewQuery.isPending) && <p role="status" className="text-sm text-muted-foreground">{t('loading')}</p>}
             {hasList ? (
               <select id="character-id" className={selectClass} value={characterId}
                 onChange={event => setCharacterId(event.target.value)} data-testid="character-select">
@@ -450,6 +471,7 @@ function InviteTableCard({ invite, autoCharacterId, embedded = false }: { invite
   const suitable = characters.filter(character =>
     preview?.sheet_template_id != null
     && character.template_id === preview.sheet_template_id
+    && (preview.available_classes ?? []).includes(character.class_id ?? '')
     && !(preview.taken_character_ids ?? []).includes(character.id))
   const chosenId = selectedId || suitable[0]?.id || ''
 

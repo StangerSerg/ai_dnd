@@ -1,0 +1,28 @@
+scenario:
+  title: (заглушка) Импортированный сценарий
+  language: ru
+  ruleset: dnd5e-srd@1
+  sheet_template: srd5-basic@1
+  start_scene: start
+  synopsis: '(заглушка) Краткий пересказ модуля: замените текстом автора.'
+  class_pack: fantasy-core
+  available_classes: []
+  items_enabled: true
+scenes:
+- id: start
+  title: (заглушка) Импортированный сценарий
+  read_aloud: (заглушка) Вы стоите в начале приключения. Ведущий ждёт ваших действий.
+  npcs: []
+  items: []
+  clues: []
+  handouts: []
+  encounters: []
+  exits: []
+  checks: []
+npcs: []
+items: []
+clues: []
+handouts: []
+encounters: []
+lore: []
+statblocks: {}

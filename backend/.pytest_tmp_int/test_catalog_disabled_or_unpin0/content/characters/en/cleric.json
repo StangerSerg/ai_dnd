@@ -1,0 +1,61 @@
+{
+  "template": "srd5-basic@1",
+  "values": {
+    "name": "Torgrim",
+    "race": "Dwarf (hill)",
+    "char_class": "Cleric",
+    "background": "Acolyte",
+    "alignment": "Lawful good",
+    "level": 3,
+    "xp": 900,
+    "str": 14,
+    "dex": 10,
+    "con": 14,
+    "int": 10,
+    "wis": 16,
+    "cha": 12,
+    "save_wis_prof": true,
+    "save_cha_prof": true,
+    "insight_prof": "proficient",
+    "medicine_prof": "proficient",
+    "persuasion_prof": "proficient",
+    "religion_prof": "proficient",
+    "armor_type": "medium",
+    "armor_base": 14,
+    "shield": true,
+    "speed": 25,
+    "hit_die": 8,
+    "hp_bonus": 3,
+    "hp": {"current": 27},
+    "hit_dice": {"current": 3},
+    "attacks": [
+      {"name": "Mace", "bonus": 4, "damage": "1d6+2", "damage_type": "bludgeoning", "notes": ""}
+    ],
+    "spell_ability": "wis",
+    "spell_slots_1": {"current": 4, "max": 4},
+    "spell_slots_2": {"current": 2, "max": 2},
+    "spells": [
+      {"name": "Sacred Flame", "level": 0, "prepared": true, "notes": "Dexterity save, 1d8 radiant"},
+      {"name": "Guidance", "level": 0, "prepared": true, "notes": "+1d4 to one ability check"},
+      {"name": "Light", "level": 0, "prepared": true, "notes": ""},
+      {"name": "Bless", "level": 1, "prepared": true, "notes": "domain"},
+      {"name": "Cure Wounds", "level": 1, "prepared": true, "notes": "domain"},
+      {"name": "Healing Word", "level": 1, "prepared": true, "notes": ""},
+      {"name": "Guiding Bolt", "level": 1, "prepared": true, "notes": ""},
+      {"name": "Shield of Faith", "level": 1, "prepared": true, "notes": ""},
+      {"name": "Lesser Restoration", "level": 2, "prepared": true, "notes": "domain"},
+      {"name": "Spiritual Weapon", "level": 2, "prepared": true, "notes": "domain"},
+      {"name": "Hold Person", "level": 2, "prepared": true, "notes": ""}
+    ],
+    "gp": 10,
+    "inventory": [
+      {"name": "Scale mail", "qty": 1, "notes": "AC 14 + Dex (max 2)"},
+      {"name": "Shield", "qty": 1, "notes": "+2 AC"},
+      {"name": "Mace", "qty": 1, "notes": ""},
+      {"name": "Holy symbol", "qty": 1, "notes": ""},
+      {"name": "Priest's pack", "qty": 1, "notes": ""}
+    ],
+    "features": "Divine Domain: Life.\nDisciple of Life: healing spells restore an additional 2 + spell level hit points.\nChannel Divinity (once per short rest): Turn Undead or Preserve Life (distribute up to 15 hit points among the wounded).\nDwarven Toughness: +1 hit point maximum per level (included in the adjustment).",
+    "proficiencies": "Light and medium armor, heavy armor (Life domain), shields, simple weapons. Languages: Common, Dwarvish."
+  }
+}

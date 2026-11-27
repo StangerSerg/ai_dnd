@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Annotated, cast
 
 import typer
+from pydantic import TypeAdapter
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
@@ -57,9 +58,10 @@ from ai_dnd.rules.actions import (
 )
 from ai_dnd.rules.errors import RulesError
 from ai_dnd.rules.rng import Rng, SeededRng, SystemRng
+from ai_dnd.rules.ruleset import Ruleset, RulesetRef
 from ai_dnd.rules.visibility import PUBLIC
-from ai_dnd.rulesets.service import load_ruleset
-from ai_dnd.scenarios.service import ScenarioError, load_bestiary
+from ai_dnd.rulesets.service import load_ruleset, reseed_ruleset
+from ai_dnd.scenarios.service import ScenarioError, load_bestiary, read_yaml
 from ai_dnd.scenarios.store import (
     load_game_content_from_db,
     publish_scenario,
@@ -627,6 +629,33 @@ def seed(
     asyncio.run(_seed(scenario, lang, visibility, not no_index, wait))
 
 
+@app.command("reseed-ruleset")
+def reseed_ruleset_command(
+    ref: Annotated[str, typer.Argument(help="Точная ссылка на существующую версию: id@version")],
+) -> None:
+    """Осознанно заменить данные опубликованной версии ruleset из content/rulesets."""
+    console = Console(highlight=False)
+    try:
+        TypeAdapter(RulesetRef).validate_python(ref)
+        settings = get_settings()
+        ruleset = load_ruleset(settings.content_dir / "rulesets" / f"{ref.split('@', 1)[0]}.json")
+        if ruleset.ref != ref:
+            raise ValueError(f"ruleset: файл содержит {ruleset.ref}, ожидался {ref}")
+        row_id = asyncio.run(_reseed_ruleset(ruleset))
+    except (ValueError, OSError, RulesError) as error:
+        console.print(f"[red]{escape(str(error))}[/red]")
+        raise typer.Exit(1) from error
+    console.print(f"Обновлены данные ruleset {escape(ref)} ({row_id})")
+
+
+async def _reseed_ruleset(ruleset: Ruleset) -> uuid.UUID:
+    engine = create_engine(get_settings())
+    try:
+        return await reseed_ruleset(create_session_factory(engine), ruleset)
+    finally:
+        await engine.dispose()
+
+
 @app.command()
 def reindex(
     version_id: Annotated[str, typer.Argument(help="UUID опубликованной версии сценария")],
@@ -689,6 +718,7 @@ async def _import(
         bestiaries = tuple(
             load_bestiary(path, ruleset)
             for path in sorted((settings.content_dir / "bestiary").glob("*.yaml"))
+            if read_yaml(path).get("ruleset") == ruleset.ref
         )
         extracted = extract_text(file)
         # Импорт не пишет в базу: стоимость видна только в отчёте и выводе команды.

@@ -41,6 +41,7 @@ async def import_scenario(
     ruleset: Ruleset,
     bestiaries: Iterable[Bestiary],
     sheet_template: str,
+    class_pack: str | None = None,
 ) -> ImportResult:
     if not text.strip():
         raise ValueError("empty_document: текст модуля пуст")
@@ -50,6 +51,13 @@ async def import_scenario(
             "разделите модуль на части"
         )
     libraries = tuple(bestiaries)
+    # Пакет определяется параметром импорта или явной картой правил, не ответом LLM.
+    target_pack = class_pack or {
+        "dnd5e-srd@1": "fantasy-core",
+        "worms-space@1": "worms-ship",
+    }.get(ruleset.ref)
+    if target_pack is None:
+        raise ValueError(f"Укажите class_pack для набора правил {ruleset.ref}")
     messages = [
         Message.system(import_system_prompt(language)),
         Message.user(
@@ -63,7 +71,11 @@ async def import_scenario(
         ),
     ]
     structured = await gateway.structured("import", messages, ImportDraft)
-    scenario = structured.value.scenario
+    raw_scenario = structured.value.scenario
+    info = raw_scenario.scenario.model_copy(
+        update={"class_pack": target_pack, "available_classes": ()}
+    )
+    scenario = raw_scenario.model_copy(update={"scenario": info})
     issues = list(find_scenario_issues(scenario, libraries, ruleset))
     if scenario.scenario.language != language:
         issues.append(
@@ -82,5 +94,7 @@ async def import_scenario(
             )
         )
     return ImportResult(
-        draft=structured.value, issues=tuple(issues), responses=structured.responses
+        draft=structured.value.model_copy(update={"scenario": scenario}),
+        issues=tuple(issues),
+        responses=structured.responses,
     )

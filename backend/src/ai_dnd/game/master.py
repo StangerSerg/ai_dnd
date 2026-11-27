@@ -1,7 +1,8 @@
 """Ведущий-ИИ: private decisions, engine effects, then public narration."""
 
 import json
-from collections.abc import AsyncIterator, Sequence
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -14,11 +15,26 @@ from ai_dnd.ai.schemas import LLMResponse, Message, ToolCall
 from ai_dnd.game.content import GameContent
 from ai_dnd.game.context import ActionLine, ContextBuilder
 from ai_dnd.game.decision import ActionDecision, TurnDecision
-from ai_dnd.game.events import JournalEvent, Narrated, PartyDefeated, PlayerActed, SummaryUpdated
+from ai_dnd.game.events import (
+    FactNoted,
+    ItemGranted,
+    JournalEvent,
+    Narrated,
+    PartyDefeated,
+    PlayerActed,
+    SummaryUpdated,
+)
 from ai_dnd.game.journal import Journal
 from ai_dnd.game.memory import SUMMARY_EVERY, build_summary
 from ai_dnd.game.render import ModelLogRenderer
-from ai_dnd.game.session import SessionSetup, SessionState, apply_events
+from ai_dnd.game.session import (
+    SessionSetup,
+    SessionState,
+    affordable_rules,
+    apply_events,
+    attack_cost_id,
+    spend_item_event,
+)
 from ai_dnd.game.spells import CURE_WOUNDS_TOOL
 from ai_dnd.game.tools import (
     LOOKUP_LORE_SPEC,
@@ -30,16 +46,19 @@ from ai_dnd.game.tools import (
     EquipItemArgs,
     LookupLoreArgs,
     ProtectArgs,
+    SpendItemArgs,
     StealthArgs,
+    TakeRestArgs,
     ToolOutcome,
     UnequipItemArgs,
     UseItemArgs,
     item_mechanics,
 )
 from ai_dnd.rag.search import LoreSearcher, SearchHit, format_fragments
-from ai_dnd.rules.actions import Action
+from ai_dnd.rules.actions import Action, AttackAction, ResourceAction
 from ai_dnd.rules.combat import party_wiped
 from ai_dnd.rules.engine import RulesEngine
+from ai_dnd.rules.errors import ActionError
 from ai_dnd.rules.events import (
     ActorDied,
     ActorFled,
@@ -69,8 +88,10 @@ EFFECT_TOOLS = frozenset(
         "equip_item",
         "unequip_item",
         "use_item",
+        "spend_item",
         "enhance_item",
         "adjust_resource",
+        "take_rest",
         CURE_WOUNDS_TOOL,
         "note_fact",
         "protect",
@@ -80,6 +101,28 @@ EFFECT_TOOLS = frozenset(
 # Сколько прошлых ходов идёт в промпт дословно (N). Более старые сворачиваются в сводку
 # раз в SUMMARY_EVERY ходов (раздел 9.3, подэтап 2.4).
 HISTORY_TURNS = 12
+HISTORY_BACKLOG_LIMIT = 64
+_log = logging.getLogger(__name__)
+PUBLIC_OUTCOME_EVENTS = frozenset(
+    {
+        "DamageDealt",
+        "Healed",
+        "ResourceChanged",
+        "RestTaken",
+        "ConditionApplied",
+        "ConditionRemoved",
+        "ActorDied",
+        "NpcDied",
+        "ItemGranted",
+        "ItemEquipped",
+        "ItemUnequipped",
+        "ItemUsed",
+        "ItemSpent",
+        "ItemEnhanced",
+        "ProtectionStarted",
+        "ProtectionEnded",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +170,22 @@ class _SceneNotReachableError(ValueError):
     отказом в мире, но никогда системной ошибкой хода."""
 
 
+class MemoryBacklogError(RuntimeError):
+    """The unsummarized journal exceeds the bounded prompt recovery window."""
+
+
+class TurnLockLostError(RuntimeError):
+    """The web worker no longer owns the session lock."""
+
+
+class SummaryGenerationError(RuntimeError):
+    """The summarizer could not produce a usable recap."""
+
+
+class SummaryCommitError(RuntimeError):
+    """A recap write or its broadcast failed; reload the durable session."""
+
+
 @dataclass(slots=True)
 class _PendingTurn:
     inputs: tuple[PlayerInput, ...]
@@ -153,6 +212,9 @@ class GameMaster:
         journal: Journal,
         rng: Rng,
         searcher: LoreSearcher | None = None,
+        *,
+        history: Sequence[tuple[str, str]] = (),
+        history_start_turn: int = 0,
     ) -> None:
         self._content = content
         self._setup = setup
@@ -186,7 +248,8 @@ class GameMaster:
             )
         self._log_renderer = ModelLogRenderer(content)
         # Прошлые ходы: (как ход выглядит в истории, рассказ ведущего).
-        self._history: list[tuple[str, str]] = []
+        self._history: list[tuple[str, str]] = list(history)
+        self._history_start_turn = history_start_turn
         # События боя, которые модель ещё не описала.
         self._combat_log: list[JournalEvent] = []
         # Последний состав боя нужен после CombatEnded: в правилах он уже очищен.
@@ -195,6 +258,11 @@ class GameMaster:
         self._pending_turn: _PendingTurn | None = None
         self._pending_combat_text: str | None = None
         self._combat_narration_pending = False
+        self._memory_prepared_at = -1
+        self._lock_guard: Callable[[], Awaitable[bool]] | None = None
+
+    def set_lock_guard(self, guard: Callable[[], Awaitable[bool]] | None) -> None:
+        self._lock_guard = guard
 
     @property
     def state(self) -> SessionState:
@@ -216,7 +284,7 @@ class GameMaster:
             raise LLMError("pending_turn", "Resolve the previous turn first")
         messages = [
             Message.system(self._context.system_prompt),
-            Message.user(self._context.turn_message(self._state, (), opening=True)),
+            Message.user(self._context.public_turn_message(self._state, (), opening=True)),
         ]
         narration, response = await self._narration_response(messages)
         yield ModelCalled(response)
@@ -232,6 +300,7 @@ class GameMaster:
             raise LLMError("combat_in_progress", "Use combat actions")
         if not inputs:
             raise ValueError("A turn needs at least one player input")
+        await self.prepare_history()
         actions = tuple(
             ActionLine(
                 actor_id=item.actor_id,
@@ -389,6 +458,14 @@ class GameMaster:
                     ),
                 )
                 if operation.outcome.failed:
+                    if plan.tool_name == "grant_item" and operation.outcome.result.get("error") in {
+                        "unknown_item",
+                        "item_not_in_scene",
+                        "improvised_items_not_allowed",
+                        "improvised_item_not_trivial",
+                    }:
+                        self._refuse_item(pending, plan.input_index)
+                        continue
                     self._repair(pending, self._operation_error(operation))
                     failed = True
                     break
@@ -411,7 +488,10 @@ class GameMaster:
                 *self._history_messages(),
                 Message.user(
                     self._context.narration_message(
-                        self._state, pending.actions, pending.completed, fragments=public_fragments
+                        self._state,
+                        pending.actions,
+                        self._public_completed(pending.completed),
+                        fragments=public_fragments,
                     )
                 ),
             ]
@@ -424,7 +504,7 @@ class GameMaster:
         self._pending_turn = None
         yield NarrationChunk(narration)
         # Сводка старых ходов — после рассказа игрокам, отдельным вызовом задачи summary.
-        await self._maybe_summarize()
+        await self._summarize_after_narration()
 
     def _validate_decision(
         self, pending: _PendingTurn, decision: TurnDecision
@@ -485,6 +565,10 @@ class GameMaster:
                     args = CastCureWoundsArgs.model_validate(plan.arguments)
                     if args.caster_id != plan.actor_id:
                         raise ValueError("Cure Wounds caster must match input actor")
+                if plan.tool_name == "take_rest":
+                    rest_args = TakeRestArgs.model_validate(plan.arguments)
+                    if rest_args.actor_id != plan.actor_id:
+                        raise ValueError("rest actor must match input actor")
                 if plan.tool_name == "protect":
                     protection = ProtectArgs.model_validate(plan.arguments)
                     if protection.protector_id != plan.actor_id:
@@ -505,6 +589,10 @@ class GameMaster:
                     using = UseItemArgs.model_validate(plan.arguments)
                     if using.actor_id != plan.actor_id:
                         raise ValueError("use_item actor must match input actor")
+                if plan.tool_name == "spend_item":
+                    spending = SpendItemArgs.model_validate(plan.arguments)
+                    if spending.actor_id != plan.actor_id:
+                        raise ValueError("spend_item actor must match input actor")
                 if plan.tool_name == "enhance_item":
                     enhancing = EnhanceItemArgs.model_validate(plan.arguments)
                     if enhancing.actor_id != plan.actor_id:
@@ -634,6 +722,27 @@ class GameMaster:
         pending.unresolved.clear()
         pending.problem = ""
 
+    @staticmethod
+    def _refuse_item(pending: _PendingTurn, ref: int) -> None:
+        # A denied grant is a resolved search/claim, not a reason to exhaust the
+        # planning budget. Keep the other players' inputs available to resolve.
+        pending.completed.append(
+            {
+                "input_indices": [ref],
+                "kind": "stay",
+                "events": [],
+                "result": {
+                    "instruction": (
+                        "No item was granted: the claimed find has no authored basis "
+                        "in this scene or is not permitted as an improvised prop. "
+                        "Describe the absence or failed search in-world without "
+                        "confirming the claimed object or reward exists."
+                    )
+                },
+            }
+        )
+        pending.unresolved.discard(ref)
+
     def _resolve_operation(
         self,
         refs: tuple[int, ...],
@@ -666,8 +775,16 @@ class GameMaster:
         self, pending: _PendingTurn, operation: _PendingOperation
     ) -> AsyncIterator[TurnUpdate]:
         pending.pending_operation = operation
-        if operation.outcome.events:
-            await self._commit(operation.outcome.events)
+        events = operation.outcome.events
+        if any(
+            isinstance(event, CombatEnded) and event.winner == "party" for event in events
+        ) and not any(isinstance(event, ItemGranted | FactNoted) for event in events):
+            # Зеркало act-гарантии: лут и факты победы тем же коммитом, что CombatEnded.
+            after = apply_events(self._state, events)
+            events.extend(self._tools.loot_events(after))
+            events.extend(self._tools.victory_fact_events(after))
+        if events:
+            await self._commit(events)
         pending.pending_operation = None
         pending.completed.append(
             {
@@ -676,6 +793,11 @@ class GameMaster:
                 "arguments": operation.arguments,
                 "result": operation.outcome.result,
                 "events": [event.type for event in operation.outcome.events],
+                "public_events": [
+                    event.model_dump(mode="json")
+                    for event in operation.outcome.events
+                    if event.visibility == "public" and event.type in PUBLIC_OUTCOME_EVENTS
+                ],
                 "scene_id_after": self._state.scene_id,
             }
         )
@@ -719,12 +841,16 @@ class GameMaster:
         hits = await self._searcher.search(args.query) if self._searcher is not None else []
         fragments = format_fragments(hits)
         result: dict[str, Any] = {"fragments": fragments or ["(no relevant fragments found)"]}
+        public_fragments = format_fragments([hit for hit in hits if hit.visibility == "public"])
         pending.completed.append(
             {
                 "input_indices": [plan.input_index],
                 "tool": LOOKUP_LORE_TOOL,
                 "arguments": plan.arguments,
                 "result": result,
+                "public_result": {
+                    "fragments": public_fragments or ["(no relevant public fragments found)"]
+                },
                 "events": [],
                 "scene_id_after": self._state.scene_id,
             }
@@ -754,7 +880,14 @@ class GameMaster:
         return actor_id in self._setup.party
 
     def combat_options(self, actor_id: str) -> list[Action]:
-        return self._engine.available_actions(self._state.rules, actor_id)
+        # Атаки без боеприпасов/метательных предметов в остатке не предлагаются.
+        return self._engine.available_actions(affordable_rules(self._state, actor_id), actor_id)
+
+    def tactics_action(self, actor_id: str) -> Action:
+        """Выбор тактики среди атак, которым есть чем платить (бот не бьёт пустым луком)."""
+        return choose_action(
+            self._engine, affordable_rules(self._state, actor_id), actor_id, self._rng
+        )
 
     async def act(self, action: Action) -> list[JournalEvent]:
         """Действие в бою. Если его нельзя выполнить — ``ActionError`` от движка."""
@@ -762,9 +895,52 @@ class GameMaster:
             raise LLMError("pending_turn", "Finish the previous narration before combat")
         if self._combat_narration_pending:
             raise LLMError("pending_combat_narration")
-        events: list[JournalEvent] = list(
-            self._engine.resolve(self._state.rules, action, self._rng)
-        )
+        await self.prepare_history()
+        events: list[JournalEvent] = []
+        if isinstance(action, AttackAction):
+            profile = self._state.rules.actors[action.attacker_id].attacks.get(action.attack)
+            cost = attack_cost_id(profile) if profile is not None else None
+            if cost is not None and profile is not None:
+                spent = spend_item_event(
+                    self._state,
+                    action.attacker_id,
+                    cost,
+                    1,
+                    "attack" if profile.ammo is not None else "throw",
+                )
+                if spent is None:
+                    raise ActionError("out_of_ammo", actor_id=action.attacker_id, item_id=cost)
+                # Расход фиксируется до событий движка: промах тоже тратит боеприпас.
+                events.append(spent)
+            if profile is not None and profile.ammo_resource is not None:
+                # Числовой боезапас тратится за попытку, включая промах; событие
+                # попадает в журнал до событий атаки, поэтому replay идентичен.
+                try:
+                    events.extend(
+                        self._engine.resolve(
+                            self._state.rules,
+                            ResourceAction(
+                                actor_id=action.attacker_id,
+                                resource=profile.ammo_resource,
+                                delta=-1,
+                            ),
+                            self._rng,
+                        )
+                    )
+                except ActionError as error:
+                    if error.code != "not_enough_resource":
+                        raise
+                    raise ActionError(
+                        "out_of_ammo",
+                        actor_id=action.attacker_id,
+                        item_id=profile.ammo_resource,
+                    ) from None
+        events.extend(self._engine.resolve(self._state.rules, action, self._rng))
+        if any(isinstance(event, CombatEnded) and event.winner == "party" for event in events):
+            # Лут победы: тем же коммитом, что CombatEnded, до финальной наррации.
+            after = apply_events(self._state, events)
+            events.extend(self._tools.loot_events(after))
+            events.extend(self._tools.victory_fact_events(after))
         await self._commit(events)
         self._combat_log.extend(events)
         return events
@@ -780,7 +956,7 @@ class GameMaster:
             current = self.current_combatant
             if current is None or self.is_party(current):
                 break
-            action = choose_action(self._engine, self._state.rules, current, self._rng)
+            action = self.tactics_action(current)
             happened.extend(await self.act(action))
         return happened
 
@@ -801,7 +977,12 @@ class GameMaster:
             self._content.ruleset, self._state.rules, self._setup.party
         )
         if not log:
-            self._combat_log.clear()
+            if ended:
+                narration = await self.finish_terminal_combat_fallback()
+                if narration is not None:
+                    yield NarrationChunk(narration)
+            else:
+                self._combat_log.clear()
             return
         roster = self._state.rules.combat or self._last_combat
         if roster is None:
@@ -835,20 +1016,50 @@ class GameMaster:
         ]
         self._combat_narration_pending = True
         if self._pending_combat_text is None:
-            narration, response = await self._narration_response(messages)
+            try:
+                narration, response = await self._narration_response(messages)
+            except LLMError:
+                if not ended:
+                    raise
+                narration = await self.finish_terminal_combat_fallback()
+                if narration is not None:
+                    yield NarrationChunk(narration)
+                return
             self._pending_combat_text = narration
             yield ModelCalled(response)
         narration = self._pending_combat_text
-        await self._commit([Narrated(text=narration)])
-        self._history.append(("(Combat round)", narration))
+        await self._commit_combat_narration(narration, ended=ended, defeated=defeated)
+        yield NarrationChunk(narration)
+
+    async def finish_terminal_combat_fallback(self) -> str | None:
+        """Закрыть уже оконченный бой без новой модели; для BillingStop вызывается снаружи."""
+        if not any(isinstance(event, CombatEnded) for event in self._combat_log):
+            return None
+        defeated = party_wiped(self._content.ruleset, self._state.rules, self._setup.party)
+        language = self._setup.language
         if defeated:
-            # Маркер поражения после финального рассказа: фронтенд показывает выбор
-            # «покинуть стол / начать сначала».
-            await self._commit([PartyDefeated()])
+            narration = (
+                "Бой завершён. Отряд потерпел поражение."
+                if language == "ru"
+                else "The battle is over. The party was defeated."
+            )
+        else:
+            narration = "Бой завершён." if language == "ru" else "The battle is over."
+        await self._commit_combat_narration(narration, ended=True, defeated=defeated)
+        return narration
+
+    async def _commit_combat_narration(
+        self, narration: str, *, ended: bool, defeated: bool
+    ) -> None:
+        events: list[JournalEvent] = [Narrated(text=narration)]
+        if defeated:
+            # Один журнальный append/снимок: UI не видит финал без маркера поражения.
+            events.append(PartyDefeated())
+        await self._commit(events)
+        self._history.append(("(Combat round)", narration))
         self._combat_log.clear()
         self._pending_combat_text = None
         self._combat_narration_pending = False
-        yield NarrationChunk(narration)
         if ended:
             self._last_combat = None
 
@@ -931,6 +1142,8 @@ class GameMaster:
     async def _commit(self, events: Sequence[JournalEvent]) -> None:
         if not events:
             return
+        if self._lock_guard is not None and not await self._lock_guard():
+            raise TurnLockLostError("Session lock expired before journal append")
         previous_combat = self._state.rules.combat
         next_state = apply_events(self._state, events)
         await self._journal.append(events, next_state)
@@ -946,24 +1159,129 @@ class GameMaster:
         # обновлениями байт-стабильна; системный промпт (слои 1–3) не затрагивает.
         if self._state.summary:
             messages.append(Message.user(self._context.summary_entry(self._state.summary)))
-        for entry, narration in self._history[-HISTORY_TURNS:]:
+        # Последние 12 остаются парами ролей. Несвёрнутый мост перед ними входит
+        # в первую user-entry: он не пропадает между обновлениями сводки.
+        first_recent = max(self._history_start_turn, self._history_end_turn - HISTORY_TURNS)
+        bridge_start = max(self._summary_cursor, self._history_start_turn)
+        bridge = self._history[
+            bridge_start - self._history_start_turn : first_recent - self._history_start_turn
+        ]
+        bridge_text = "\n\n".join(f"{entry}\nDM: {narration}" for entry, narration in bridge)
+        for index, (entry, narration) in enumerate(
+            self._history[first_recent - self._history_start_turn :]
+        ):
+            if index == 0 and bridge_text:
+                entry = f"# Earlier dialogue awaiting recap\n{bridge_text}\n\n{entry}"
             messages.append(Message.user(entry))
             messages.append(Message(role="assistant", content=narration))
         return messages
 
+    @property
+    def _history_end_turn(self) -> int:
+        return self._history_start_turn + len(self._history)
+
+    @property
+    def _summary_cursor(self) -> int:
+        # Old empty SummaryUpdated events may have advanced the cursor without
+        # retaining any recap. Rebuild from the journal instead of hiding them.
+        return self._state.summary_through_turn if self._state.summary.strip() else 0
+
+    @staticmethod
+    def _public_completed(completed: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Narration ledger omits DM lookup fragments while planning keeps the full result."""
+        projected: list[dict[str, Any]] = []
+        for item in completed:
+            tool = item.get("tool")
+            if tool == "note_fact":
+                # A DM memory note is never an outcome to narrate to players.
+                continue
+            if tool == LOOKUP_LORE_TOOL:
+                projected.append(
+                    {
+                        "input_indices": item["input_indices"],
+                        "tool": LOOKUP_LORE_TOOL,
+                        "result": item["public_result"],
+                        "events": [],
+                    }
+                )
+                continue
+            # Argument objects are planner inputs and may contain private lore.
+            # Narration needs committed outcomes, not those raw arguments.
+            public_item = {key: value for key, value in item.items() if key != "arguments"}
+            if tool in ("request_check", "request_save"):
+                public_item["result"] = {
+                    key: value for key, value in item["result"].items() if key != "author_hint"
+                }
+            projected.append(public_item)
+        return projected
+
+    async def prepare_history(self) -> None:
+        """Retry a delayed recap before the next world effect, within a bounded tail."""
+        if self._memory_prepared_at == self._history_end_turn:
+            return
+        uncovered = self._history_end_turn - self._summary_cursor
+        if uncovered <= HISTORY_TURNS + SUMMARY_EVERY - 1:
+            self._memory_prepared_at = self._history_end_turn
+            return
+        try:
+            await self._maybe_summarize()
+        except (LLMError, SummaryGenerationError) as error:
+            _log.exception("Unable to catch up session summary before the next turn")
+            if uncovered > HISTORY_BACKLOG_LIMIT:
+                raise MemoryBacklogError("Uncovered history exceeds recovery limit") from error
+        self._memory_prepared_at = self._history_end_turn
+
+    async def summarize_history_batch(
+        self, turns: Sequence[tuple[str, str]], through_turn: int
+    ) -> None:
+        """Persist one contiguous legacy catch-up batch before any new effect."""
+        if through_turn != self._summary_cursor + len(turns):
+            raise ValueError("Summary batch must continue the current cursor")
+        text = await self._summary_text(turns)
+        try:
+            await self._commit([SummaryUpdated(text=text, through_turn=through_turn)])
+        except Exception as error:
+            raise SummaryCommitError("Summary commit outcome is uncertain") from error
+
+    async def _summarize_after_narration(self) -> None:
+        # Narrated уже записан и показан игрокам. Сбой фоновой сводки не должен
+        # превращать успешный ход в failed turn или вызывать служебный Narrated.
+        try:
+            await self._maybe_summarize()
+        except (LLMError, SummaryGenerationError):
+            _log.exception("Summary update failed after committed narration")
+
     async def _maybe_summarize(self) -> None:
         """Свернуть ушедшие из дословного окна ходы в сводку — раз в K ходов, одним вызовом."""
-        dropped = len(self._history) - HISTORY_TURNS
-        covered = self._state.summary_through_turn
+        dropped = self._history_end_turn - HISTORY_TURNS
+        covered = self._summary_cursor
         if dropped - covered < SUMMARY_EVERY:
             return
-        text = await build_summary(
-            self._gateway,
-            language=self._setup.language,
-            previous_summary=self._state.summary,
-            turns=self._history[covered:dropped],
+        if covered < self._history_start_turn:
+            raise RuntimeError("History is incomplete before summary cursor")
+        text = await self._summary_text(
+            self._history[covered - self._history_start_turn : dropped - self._history_start_turn]
         )
-        await self._commit([SummaryUpdated(text=text, through_turn=dropped)])
+        try:
+            await self._commit([SummaryUpdated(text=text, through_turn=dropped)])
+        except Exception as error:
+            raise SummaryCommitError("Summary commit outcome is uncertain") from error
+        prune = dropped - self._history_start_turn
+        self._history = self._history[prune:]
+        self._history_start_turn = dropped
+
+    async def _summary_text(self, turns: Sequence[tuple[str, str]]) -> str:
+        try:
+            return await build_summary(
+                self._gateway,
+                language=self._setup.language,
+                previous_summary=self._state.summary,
+                turns=turns,
+            )
+        except LLMError:
+            raise
+        except Exception as error:
+            raise SummaryGenerationError("Summary generation failed") from error
 
     async def _search_hits(self, actions: Sequence[ActionLine]) -> list[SearchHit]:
         """Предварительный поиск по тексту действий; пусто без поиска или без запроса."""

@@ -10,8 +10,9 @@ from typing import Any
 import yaml
 
 from ai_dnd.config import get_settings
-from ai_dnd.game.skills import load_classes_and_skills
+from ai_dnd.game.skills import load_class_pack
 from ai_dnd.rules.ruleset import Effect, EffectTarget, Ruleset
+from ai_dnd.scenarios.icons import ITEM_ICON_IDS
 from ai_dnd.scenarios.schemas import (
     MAX_ITEM_ENHANCEMENT,
     Bestiary,
@@ -20,6 +21,12 @@ from ai_dnd.scenarios.schemas import (
     Scenario,
     SceneCheck,
     Statblock,
+)
+
+# Канонические английские ключи тяжести урона (GameMaster._mandatory_outcomes, аудит
+# зависит от них): сценарные wound_epithets переопределяют только эти ярлыки.
+_WOUND_EPITHET_KEYS = frozenset(
+    {"wound", "light wound", "serious wound", "heavy wound", "devastating blow"}
 )
 
 
@@ -70,13 +77,16 @@ def load_scenario(
     ruleset: Ruleset | None = None,
     *,
     classes: Collection[str] | None = None,
+    content_dir: Path | None = None,
 ) -> Scenario:
     """Прочитать сценарий и проверить все ссылки внутри него.
 
     Если что-то не так — ``ScenarioError`` со всеми проблемами сразу.
     """
     scenario = Scenario.model_validate(read_yaml(path))
-    issues = find_scenario_issues(scenario, bestiaries, ruleset, classes=classes)
+    issues = find_scenario_issues(
+        scenario, bestiaries, ruleset, classes=classes, content_dir=content_dir
+    )
     if issues:
         raise ScenarioError(issues)
     return scenario
@@ -118,12 +128,13 @@ def find_scenario_issues(
     ruleset: Ruleset | None = None,
     *,
     classes: Collection[str] | None = None,
+    content_dir: Path | None = None,
 ) -> list[ScenarioIssue]:
     """Все проблемы сценария. Пустой список — по сценарию можно играть.
 
     Без набора правил проверяются только ссылки внутри сценария; с набором — ещё и то,
-    что навыки, спасброски и типы урона в нём существуют. ``classes`` — реестр id
-    классов для ``available_classes``; без него берётся справочник из настроек.
+    что навыки, спасброски и типы урона в нём существуют. ``classes`` — уже
+    загруженный реестр пакета, если он есть у вызывающей стороны.
     """
     libraries = list(bestiaries)
     info = scenario.scenario
@@ -146,7 +157,8 @@ def find_scenario_issues(
             if count > 1
         )
     known = {name: set(group_ids) for name, group_ids in ids.items()}
-    revealable = known["clues"] | known["handouts"]
+    # Предметы в reveal — находки успешного чека (сайт-кроул, подэтап 6b).
+    revealable = known["clues"] | known["handouts"] | known["items"]
 
     if ruleset is not None and info.ruleset != ruleset.ref:
         issues.append(
@@ -160,16 +172,43 @@ def find_scenario_issues(
         issues.append(
             ScenarioIssue("unknown_scene", "scenario.start_scene", {"id": info.start_scene})
         )
+    if info.class_pack is None:
+        issues.append(ScenarioIssue("missing_class_pack", "scenario.class_pack"))
+    else:
+        try:
+            pack = load_class_pack(content_dir or get_settings().content_dir, info.class_pack)
+            known_classes = set(classes) if classes is not None else set(pack.classes)
+            if known_classes != set(pack.classes):
+                issues.append(ScenarioIssue("class_pack_mismatch", "scenario.class_pack"))
+        except (OSError, ValueError) as error:
+            issues.append(
+                ScenarioIssue("unknown_class_pack", "scenario.class_pack", {"error": str(error)})
+            )
     if info.available_classes:
-        known_classes = _known_classes(classes)
-        issues.extend(
-            ScenarioIssue("unknown_class", f"scenario.available_classes[{index}]", {"id": class_id})
-            for index, class_id in enumerate(info.available_classes)
-            if class_id not in known_classes
-        )
+        issues.append(ScenarioIssue("inline_classes_unsupported", "scenario.available_classes"))
+    issues.extend(
+        ScenarioIssue("unknown_wound_epithet", f"scenario.wound_epithets.{key}", {"key": key})
+        for key in info.wound_epithets
+        if key not in _WOUND_EPITHET_KEYS
+    )
 
     for scene in scenario.scenes:
         path = f"scenes.{scene.id}"
+        if scene.rest is not None:
+            rest = scene.rest
+            issues.extend(
+                ScenarioIssue(
+                    "unknown_encounter",
+                    f"{path}.rest.after_encounters[{index}]",
+                    {"id": encounter_id},
+                )
+                for index, encounter_id in enumerate(rest.after_encounters)
+                if encounter_id not in known["encounters"]
+            )
+            if len(set(rest.after_encounters)) != len(rest.after_encounters):
+                issues.append(ScenarioIssue("duplicate_id", f"{path}.rest.after_encounters"))
+            if len(set(rest.resources)) != len(rest.resources):
+                issues.append(ScenarioIssue("duplicate_id", f"{path}.rest.resources"))
         references = {
             "exits": (scene.exits, "scenes", "unknown_scene"),
             "npcs": (scene.npcs, "npcs", "unknown_npc"),
@@ -194,6 +233,16 @@ def find_scenario_issues(
             if count > 1
         )
 
+    issues.extend(
+        ScenarioIssue("duplicate_id", f"scenes.{scene.id}.rest.id", {"id": scene.rest.id})
+        for scene in scenario.scenes
+        if scene.rest is not None
+        and sum(
+            other.rest is not None and other.rest.id == scene.rest.id for other in scenario.scenes
+        )
+        > 1
+    )
+
     for npc in scenario.npcs:
         if npc.home is not None and npc.home not in known["scenes"]:
             issues.append(ScenarioIssue("unknown_scene", f"npcs.{npc.id}.home", {"id": npc.home}))
@@ -213,9 +262,18 @@ def find_scenario_issues(
             for index, group in enumerate(encounter.creatures)
             if _missing(scenario, group.statblock, libraries)
         )
+        issues.extend(
+            ScenarioIssue(
+                "unknown_item",
+                f"encounters.{encounter.id}.loot[{index}].item_id",
+                {"id": entry.item_id},
+            )
+            for index, entry in enumerate(encounter.loot)
+            if entry.item_id not in known["items"]
+        )
 
     for item in scenario.items:
-        issues.extend(_item_issues(item, f"items.{item.id}", ruleset))
+        issues.extend(_item_issues(item, f"items.{item.id}", ruleset, known["items"]))
 
     if ruleset is not None:
         for statblock_id, statblock in scenario.statblocks.items():
@@ -237,15 +295,6 @@ def find_scenario_issues(
 
 def _missing(scenario: Scenario, ref: str, bestiaries: Iterable[Bestiary]) -> bool:
     return resolve_statblock(scenario, ref, bestiaries) is None
-
-
-def _known_classes(classes: Collection[str] | None) -> Collection[str]:
-    if classes is not None:
-        return classes
-    # Классы — общий справочник content/ (как бестиарий и глоссарий), поэтому без
-    # явного реестра он берётся из настроек: валидация работает и в publish-пути.
-    registry, _ = load_classes_and_skills(get_settings().content_dir)
-    return registry.keys()
 
 
 def _check_issues(
@@ -272,15 +321,36 @@ def _check_issues(
                 )
 
 
-def _item_issues(item: Item, path: str, ruleset: Ruleset | None) -> Iterator[ScenarioIssue]:
+def _item_issues(
+    item: Item, path: str, ruleset: Ruleset | None, known_items: set[str]
+) -> Iterator[ScenarioIssue]:
+    if item.icon is not None and item.icon not in ITEM_ICON_IDS:
+        yield ScenarioIssue("unknown_icon", f"{path}.icon", {"id": item.icon})
     if item.enhancement > MAX_ITEM_ENHANCEMENT:
         yield ScenarioIssue(
             "enhancement_over_limit",
             f"{path}.enhancement",
             {"value": item.enhancement, "limit": MAX_ITEM_ENHANCEMENT},
         )
-    if item.kind == "consumable" and item.consumable_effect is None:
+    if (
+        item.kind == "consumable"
+        and item.consumable_effect is None
+        and item.consume_on not in ("attack", "throw", "spend")
+    ):
         yield ScenarioIssue("consumable_without_effect", f"{path}.consumable_effect")
+    if item.consumable_effect is not None and item.consume_on not in (None, "use"):
+        yield ScenarioIssue("effect_requires_use_trigger", f"{path}.consume_on")
+    if item.ammo is not None:
+        if item.ammo not in known_items:
+            yield ScenarioIssue("unknown_item", f"{path}.ammo", {"id": item.ammo})
+        if item.attack is None:
+            yield ScenarioIssue("ammo_requires_attack", f"{path}.ammo")
+    if item.consume_on == "attack" and item.kind != "consumable":
+        yield ScenarioIssue("attack_ammo_not_consumable", f"{path}.consume_on")
+    if item.consume_on == "throw" and item.attack is None:
+        yield ScenarioIssue("throw_requires_attack", f"{path}.consume_on")
+    if item.repair_hp is not None and item.consume_on != "spend":
+        yield ScenarioIssue("repair_requires_spend", f"{path}.repair_hp")
     for index, effect in enumerate(item.modifiers):
         yield from _effect_issues(effect, f"{path}.modifiers[{index}]", ruleset)
     if isinstance(item.consumable_effect, ItemBuff):
@@ -292,6 +362,15 @@ def _item_issues(item: Item, path: str, ruleset: Ruleset | None) -> Iterator[Sce
         and item.damage_type not in ruleset.damage_types
     ):
         yield ScenarioIssue("unknown_damage_type", f"{path}.damage_type", {"id": item.damage_type})
+    if (
+        ruleset is not None
+        and item.attack is not None
+        and item.attack.damage_type is not None
+        and item.attack.damage_type not in ruleset.damage_types
+    ):
+        yield ScenarioIssue(
+            "unknown_damage_type", f"{path}.attack.damage_type", {"id": item.attack.damage_type}
+        )
 
 
 def _effect_issues(effect: Effect, path: str, ruleset: Ruleset | None) -> Iterator[ScenarioIssue]:

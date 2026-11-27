@@ -1,0 +1,6 @@
+id: magic-world
+name: Маги мира
+classes:
+  world_mage:
+    skills: [water_healing]
+    label: Маг мира

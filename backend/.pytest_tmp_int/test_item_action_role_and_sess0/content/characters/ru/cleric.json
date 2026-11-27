@@ -1,0 +1,61 @@
+{
+  "template": "srd5-basic@1",
+  "values": {
+    "name": "Торгрим",
+    "race": "Дварф (холмовой)",
+    "char_class": "Жрец",
+    "background": "Послушник",
+    "alignment": "Законно-добрый",
+    "level": 3,
+    "xp": 900,
+    "str": 14,
+    "dex": 10,
+    "con": 14,
+    "int": 10,
+    "wis": 16,
+    "cha": 12,
+    "save_wis_prof": true,
+    "save_cha_prof": true,
+    "insight_prof": "proficient",
+    "medicine_prof": "proficient",
+    "persuasion_prof": "proficient",
+    "religion_prof": "proficient",
+    "armor_type": "medium",
+    "armor_base": 14,
+    "shield": true,
+    "speed": 25,
+    "hit_die": 8,
+    "hp_bonus": 3,
+    "hp": {"current": 27},
+    "hit_dice": {"current": 3},
+    "attacks": [
+      {"name": "Булава", "bonus": 4, "damage": "1d6+2", "damage_type": "bludgeoning", "notes": ""}
+    ],
+    "spell_ability": "wis",
+    "spell_slots_1": {"current": 4, "max": 4},
+    "spell_slots_2": {"current": 2, "max": 2},
+    "spells": [
+      {"name": "Священное пламя", "level": 0, "prepared": true, "notes": "спасбросок Ловкости, 1к8 излучением"},
+      {"name": "Указание", "level": 0, "prepared": true, "notes": "+1к4 к одной проверке"},
+      {"name": "Свет", "level": 0, "prepared": true, "notes": ""},
+      {"name": "Благословение", "level": 1, "prepared": true, "notes": "домен"},
+      {"name": "Лечение ран", "level": 1, "prepared": true, "notes": "домен"},
+      {"name": "Лечащее слово", "level": 1, "prepared": true, "notes": ""},
+      {"name": "Направленный снаряд", "level": 1, "prepared": true, "notes": ""},
+      {"name": "Щит веры", "level": 1, "prepared": true, "notes": ""},
+      {"name": "Малое восстановление", "level": 2, "prepared": true, "notes": "домен"},
+      {"name": "Божественное оружие", "level": 2, "prepared": true, "notes": "домен"},
+      {"name": "Удержание личности", "level": 2, "prepared": true, "notes": ""}
+    ],
+    "gp": 10,
+    "inventory": [
+      {"name": "Чешуйчатый доспех", "qty": 1, "notes": "КД 14 + Ловкость (макс. 2)"},
+      {"name": "Щит", "qty": 1, "notes": "+2 к КД"},
+      {"name": "Булава", "qty": 1, "notes": ""},
+      {"name": "Священный символ", "qty": 1, "notes": ""},
+      {"name": "Набор священника", "qty": 1, "notes": ""}
+    ],
+    "features": "Божественный домен: Жизнь.\nУченик жизни: лечащие заклинания восстанавливают дополнительно 2 + уровень заклинания хитов.\nБожественный канал (один раз за короткий отдых): Изгнание нежити или Сохранение жизни (распределить до 15 хитов между ранеными).\nДварфийская выдержка: +1 к максимуму хитов за уровень (учтено в поправке).",
+    "proficiencies": "Лёгкие и средние доспехи, тяжёлые доспехи (домен Жизни), щиты, простое оружие. Языки: Общий, Дварфийский."
+  }
+}

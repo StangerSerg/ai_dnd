@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from ai_dnd.realtime.auth import CurrentUser, GetCurrentUser
 from ai_dnd.resources import Resources, get_resources
+from ai_dnd.scenarios.icons import ICON_ATTRIBUTION, ITEM_ICONS
 from ai_dnd.scenarios.models import ScenarioRow, ScenarioVersionRow
 
 
@@ -58,5 +59,45 @@ def build_scenarios_router(get_current_user: GetCurrentUser) -> APIRouter:
             )
             for version_id, slug, language, info in rows
         ]
+
+    return router
+
+
+class IconName(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ru: str
+    en: str
+
+
+class ItemIconInfo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: IconName
+
+
+class ItemIconsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    icons: list[ItemIconInfo]
+    attribution: str
+
+
+def build_item_icons_router(get_current_user: GetCurrentUser) -> APIRouter:
+    """Каталог иконок предметов (подэтап 7): фиксированный allowlist для редактора."""
+    router = APIRouter(prefix="/api/item-icons", tags=["scenarios"])
+
+    @router.get("", response_model=ItemIconsResponse)
+    async def list_item_icons(
+        user: Annotated[CurrentUser, Depends(get_current_user)],
+    ) -> ItemIconsResponse:
+        return ItemIconsResponse(
+            icons=[
+                ItemIconInfo(id=icon.id, name=IconName(ru=icon.name_ru, en=icon.name_en))
+                for icon in ITEM_ICONS
+            ],
+            attribution=ICON_ATTRIBUTION,
+        )
 
     return router

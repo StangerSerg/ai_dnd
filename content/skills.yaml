@@ -4,3 +4,4 @@ skills:
   cure_wounds: {kind: heal, spell_id: cure_wounds, prepared: true, disciple_of_life: true}
   stealth: {kind: stealth}
   protect: {kind: protect}
+  water_healing: {kind: heal, spell_id: cure_wounds, prepared: true, disciple_of_life: false, consumes_slot: false}

@@ -73,6 +73,8 @@ class TaskConfig(_Model):
     thinking: bool = False
     reasoning_effort: Literal["low", "high", "max"] | None = None
     max_tokens: Annotated[int, Field(ge=1)]
+    # Необязательный защитный бюджет задачи; это не заявленная ёмкость провайдера.
+    budget_window_tokens: Annotated[int, Field(ge=1)] | None = None
     temperature: Annotated[float, Field(ge=0, le=2)] | None = None
     timeout: Annotated[float, Field(gt=0)] = 60.0
 
@@ -83,11 +85,18 @@ class RetryConfig(_Model):
     validation_attempts: Annotated[int, Field(ge=0, le=5)] = 2
 
 
+class BudgetConfig(_Model):
+    # Защитный лимит приложения, а не заявленная ёмкость контекста провайдера.
+    window_tokens: Annotated[int, Field(ge=1)] = 131_072
+    output_margin_tokens: Annotated[int, Field(ge=0)] = 1024
+
+
 class LLMConfig(_Model):
     providers: dict[str, ProviderConfig]
     models: dict[str, ModelConfig]
     tasks: dict[str, TaskConfig]
     retries: RetryConfig = Field(default_factory=RetryConfig)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
 
     @model_validator(mode="after")
     def _references_exist(self) -> Self:
@@ -97,6 +106,9 @@ class LLMConfig(_Model):
         for name, task in self.tasks.items():
             if task.model not in self.models:
                 raise ValueError(f"задача «{name}»: неизвестная модель «{task.model}»")
+            effective_window = task.budget_window_tokens or self.budget.window_tokens
+            if task.max_tokens + self.budget.output_margin_tokens >= effective_window:
+                raise ValueError(f"задача «{name}»: резерв ответа не помещается в budget")
         return self
 
     def prices_for(self, model: str, moment: datetime) -> Prices:

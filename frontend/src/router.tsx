@@ -9,6 +9,7 @@ import { ProfilePage } from '@/pages/profile-page'
 import { GamesPage } from '@/pages/games-page'
 import { GamePage } from '@/pages/game-page'
 import { CharactersPage } from '@/pages/characters-page'
+import { AuthorItemsPage } from '@/pages/author-items-page'
 import { AdminPage } from '@/pages/admin-page'
 import { DemoPage } from '@/pages/demo-page'
 
@@ -131,6 +132,15 @@ const charactersRoute = createRoute({
   component: CharactersPage,
 })
 
+// Авторская вкладка «Предметы» (подэтап 7): доступ у любого авторизованного,
+// REST /api/author/* сам отдаёт только свои сценарии.
+const authorItemsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/author/items',
+  beforeLoad: requireAuth,
+  component: AuthorItemsPage,
+})
+
 const demoRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/demo',
@@ -156,7 +166,7 @@ const adminRoute = createRoute({
   component: AdminPage,
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, loginRoute, profileRoute, gamesRoute, gameRoute, charactersRoute, demoRoute, adminRoute])
+const routeTree = rootRoute.addChildren([indexRoute, loginRoute, profileRoute, gamesRoute, gameRoute, charactersRoute, authorItemsRoute, demoRoute, adminRoute])
 
 export function makeRouter(queryClient: QueryClient) {
   return createRouter({

@@ -139,9 +139,11 @@ class _FakeRedis:
         return int(key in self._data)
 
     async def eval(self, script: str, numkeys: int, *args: Any) -> int:
-        # Единственный скрипт на этих путях — _RELEASE_LUA (снятие замка владельцем).
+        # _EXTEND_LUA продлевает только свой замок, _RELEASE_LUA снимает его.
         key, token = str(args[0]), str(args[1])
         if self._data.get(key) == token:
+            if len(args) == 3:
+                return 1
             del self._data[key]
             return 1
         return 0

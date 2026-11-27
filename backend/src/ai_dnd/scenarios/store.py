@@ -17,11 +17,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import TypeAdapter
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_dnd.game.content import GameContent, load_game_content
-from ai_dnd.game.skills import load_classes_and_skills
+from ai_dnd.game.skills import (
+    CharacterClass,
+    ClassPack,
+    Skill,
+    load_class_pack,
+    load_classes_and_skills,
+)
 from ai_dnd.rules.ruleset import Ruleset
 from ai_dnd.rulesets.glossary import load_glossary
 from ai_dnd.rulesets.models import RulesetRow
@@ -39,7 +46,7 @@ from ai_dnd.scenarios.schemas import (
     Scene,
     Statblock,
 )
-from ai_dnd.scenarios.service import load_bestiary
+from ai_dnd.scenarios.service import load_bestiary, read_yaml
 from ai_dnd.sheets.compiled import compile_template
 from ai_dnd.sheets.models import SheetTemplateRow
 from ai_dnd.sheets.schemas import SheetTemplate
@@ -86,7 +93,9 @@ def _scenario_from_rows(
     for row in rows:
         by_type.setdefault(row.type, []).append(row)
     return Scenario(
-        scenario=ScenarioInfo.model_validate(info),
+        scenario=ScenarioInfo.model_validate(
+            {k: v for k, v in info.items() if not k.startswith("_class_pack_")}
+        ),
         scenes=tuple(Scene.model_validate(r.data) for r in by_type.get("scene", [])),
         npcs=tuple(Npc.model_validate(r.data) for r in by_type.get("npc", [])),
         items=tuple(Item.model_validate(r.data) for r in by_type.get("item", [])),
@@ -97,6 +106,36 @@ def _scenario_from_rows(
         statblocks={r.key: Statblock.model_validate(r.data) for r in by_type.get("statblock", [])},
         map=ScenarioMap.model_validate(map_data) if map_data is not None else None,
     )
+
+
+def classes_for_version_info(info: dict[str, Any], content_dir: Path) -> dict[str, CharacterClass]:
+    """Закреплённый снимок пакета; старые версии изолируются явным адаптером."""
+    snapshot = info.get("_class_pack_snapshot")
+    if snapshot is not None:
+        pack = ClassPack.model_validate(snapshot)
+        if pack.id != info.get("class_pack"):
+            raise ValueError("Пакет классов версии не совпадает с её ссылкой")
+        return pack.classes
+    if info.get("class_pack") is not None:
+        raise ValueError("Версия с class_pack не содержит закреплённого снимка пакета")
+    # Версии, опубликованные до 2b, не хранили пакет. Соответствие ruleset→pack
+    # перечислено явно; отсутствие inline-списка больше не означает «все».
+    pack_id = _legacy_pack_id(info.get("ruleset"))
+    classes = load_class_pack(content_dir, pack_id).classes
+    inline = info.get("available_classes") or ()
+    if inline:
+        unknown = set(inline) - set(classes)
+        if unknown:
+            raise ValueError(f"У старой версии классы вне пакета: {sorted(unknown)}")
+        return {key: value for key, value in classes.items() if key in inline}
+    return classes
+
+
+def _legacy_pack_id(ruleset_ref: object) -> str:
+    pack_id = {"dnd5e-srd@1": "fantasy-core", "worms-space@1": "worms-ship"}.get(ruleset_ref)
+    if pack_id is None:
+        raise ValueError(f"Для старой версии неизвестен пакет классов: {ruleset_ref!r}")
+    return pack_id
 
 
 async def _upsert_ruleset(
@@ -141,6 +180,48 @@ async def _upsert_template(
     db.add(row)
     await db.flush()
     return row
+
+
+async def _insert_version(
+    db: AsyncSession,
+    scenario_row: ScenarioRow,
+    scenario: Scenario,
+    *,
+    ruleset_id: uuid.UUID,
+    sheet_template_id: uuid.UUID,
+    info: dict[str, Any],
+) -> ScenarioVersionRow:
+    """Вставить новую неизменяемую версию со всеми сущностями и сделать её текущей."""
+    last_number = await db.scalar(
+        select(func.max(ScenarioVersionRow.number)).where(
+            ScenarioVersionRow.scenario_id == scenario_row.id
+        )
+    )
+    version = ScenarioVersionRow(
+        scenario_id=scenario_row.id,
+        number=(last_number or 0) + 1,
+        ruleset_id=ruleset_id,
+        sheet_template_id=sheet_template_id,
+        info=info,
+        map=scenario.map.model_dump(mode="json") if scenario.map is not None else None,
+        published_at=datetime.now(UTC),
+    )
+    db.add(version)
+    await db.flush()
+    for type_, key, name, data, entity_visibility in _entities(scenario):
+        db.add(
+            ScenarioEntityRow(
+                version_id=version.id,
+                type=type_,
+                key=key,
+                name=name,
+                data=data,
+                visibility=entity_visibility,
+            )
+        )
+    scenario_row.current_version_id = version.id
+    scenario_row.status = "published"
+    return version
 
 
 async def publish_scenario(
@@ -189,39 +270,79 @@ async def publish_scenario(
             )
             db.add(scenario_row)
             await db.flush()
-        last_number = await db.scalar(
-            select(func.max(ScenarioVersionRow.number)).where(
-                ScenarioVersionRow.scenario_id == scenario_row.id
-            )
-        )
-        version = ScenarioVersionRow(
-            scenario_id=scenario_row.id,
-            number=(last_number or 0) + 1,
+        version = await _insert_version(
+            db,
+            scenario_row,
+            scenario,
             ruleset_id=ruleset_row.id,
             sheet_template_id=template_row.id,
-            info=info.model_dump(mode="json"),
-            map=scenario.map.model_dump(mode="json") if scenario.map is not None else None,
-            published_at=datetime.now(UTC),
-        )
-        db.add(version)
-        await db.flush()
-        for type_, key, name, data, entity_visibility in _entities(scenario):
-            db.add(
-                ScenarioEntityRow(
-                    version_id=version.id,
-                    type=type_,
-                    key=key,
-                    name=name,
-                    data=data,
-                    visibility=entity_visibility,
+            info={
+                **info.model_dump(mode="json"),
+                "_class_pack_snapshot": load_class_pack(content_dir, info.class_pack).model_dump(
+                    mode="json"
                 )
-            )
-        scenario_row.current_version_id = version.id
-        scenario_row.status = "published"
+                if info.class_pack is not None
+                else None,
+                "_class_pack_skills": {
+                    key: value.model_dump(mode="json") for key, value in content.skills.items()
+                },
+            },
+        )
         # Явно заданная видимость применяется и при повторной публикации.
         scenario_row.visibility = effective_visibility
         await db.commit()
         return version.id
+
+
+async def publish_scenario_version(
+    sessions: Sessions,
+    scenario: Scenario,
+    *,
+    scenario_id: uuid.UUID,
+    base_version_id: uuid.UUID,
+) -> uuid.UUID:
+    """Опубликовать отредактированный сценарий как новую неизменяемую версию (подэтап 7).
+
+    Правила, шаблон карточки и снимок пакета классов наследуются от базовой версии:
+    правки автора касаются только сущностей сценария. Старые сессии остаются привязаны
+    к прежней версии и не видят правок.
+    """
+    async with sessions() as db:
+        scenario_row = await db.get(ScenarioRow, scenario_id)
+        if scenario_row is None:
+            raise FileNotFoundError(f"Сценарий {scenario_id} не найден")
+        base = await db.get(ScenarioVersionRow, base_version_id)
+        if base is None or base.scenario_id != scenario_id:
+            raise FileNotFoundError(
+                f"Версия {base_version_id} не принадлежит сценарию {scenario_id}"
+            )
+        info = scenario.scenario
+        version = await _insert_version(
+            db,
+            scenario_row,
+            scenario,
+            ruleset_id=base.ruleset_id,
+            sheet_template_id=base.sheet_template_id,
+            info={
+                **info.model_dump(mode="json"),
+                "_class_pack_snapshot": base.info.get("_class_pack_snapshot"),
+                "_class_pack_skills": base.info.get("_class_pack_skills"),
+            },
+        )
+        scenario_row.title = info.title
+        await db.commit()
+        return version.id
+
+
+async def version_items_enabled(sessions: Sessions, scenario_version_id: uuid.UUID) -> bool:
+    """Флаг предметной механики закреплённой версии сценария (по умолчанию включён)."""
+    async with sessions() as db:
+        info = await db.scalar(
+            select(ScenarioVersionRow.info).where(ScenarioVersionRow.id == scenario_version_id)
+        )
+        if info is None:
+            raise FileNotFoundError(f"Версия сценария {scenario_version_id} не найдена")
+        return bool(info.get("items_enabled", True))
 
 
 async def scenario_visibility(sessions: Sessions, scenario_version_id: uuid.UUID) -> str:
@@ -297,10 +418,18 @@ async def load_game_content_from_db(
     template = compile_template(SheetTemplate.model_validate(template_row.data))
     scenario = _scenario_from_rows(version.info, version.map, rows)
     bestiaries = tuple(
-        load_bestiary(path, ruleset) for path in sorted((content_dir / "bestiary").glob("*.yaml"))
+        load_bestiary(path, ruleset)
+        for path in sorted((content_dir / "bestiary").glob("*.yaml"))
+        if read_yaml(path).get("ruleset") == ruleset.ref
     )
-    # Классы и скиллы — общие справочные данные, как бестиарий и глоссарий: из content/.
-    classes, skills = load_classes_and_skills(content_dir)
+    classes = classes_for_version_info(version.info, content_dir)
+    skill_snapshot = version.info.get("_class_pack_skills")
+    if skill_snapshot is not None:
+        skills = TypeAdapter(dict[str, Skill]).validate_python(skill_snapshot)
+    else:
+        _, skills = load_classes_and_skills(
+            content_dir, scenario.scenario.class_pack or _legacy_pack_id(scenario.scenario.ruleset)
+        )
     return GameContent(
         ruleset=ruleset,
         template=template,

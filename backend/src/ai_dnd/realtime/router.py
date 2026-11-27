@@ -13,8 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from ai_dnd.admin.models import ComplaintRow
+from ai_dnd.config import get_settings
 from ai_dnd.game.models import GameSessionRow
-from ai_dnd.game.session import SessionSetup
+from ai_dnd.game.session import SessionSetup, SessionState
 from ai_dnd.identity.models import UserRow
 from ai_dnd.realtime import service
 from ai_dnd.realtime.auth import CurrentUser, GetCurrentUser
@@ -27,6 +28,7 @@ from ai_dnd.realtime.schemas import (
     CreateSessionRequest,
     CreateSessionResponse,
     EventsResponse,
+    ItemCatalogResponse,
     JoinRequest,
     JoinResponse,
     KickRequest,
@@ -44,6 +46,11 @@ from ai_dnd.realtime.schemas import (
 )
 from ai_dnd.resources import Resources, get_resources
 from ai_dnd.scenarios.models import ScenarioRow, ScenarioVersionRow
+from ai_dnd.scenarios.store import (
+    classes_for_version_info,
+    load_game_content_from_db,
+    version_items_enabled,
+)
 
 
 class SessionListItem(BaseModel):
@@ -285,7 +292,9 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
                 ).first()
                 if version is not None:
                     title, info = version
-                    available_classes = list(info.get("available_classes") or [])
+                    available_classes = list(
+                        classes_for_version_info(info, get_settings().content_dir)
+                    )
             host_name: str | None = None
             if row.host_id is not None:
                 host_name = await db.scalar(
@@ -384,6 +393,11 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
         seats = await service.list_seats(sessions, session_id)
         events = await service.fetch_events(sessions, session_id, 0)
         dice_styles = await _dice_styles(sessions, [item.user_id for item in seats])
+        items_enabled = (
+            await version_items_enabled(sessions, row.scenario_version_id)
+            if row.scenario_version_id is not None
+            else True
+        )
         return SessionResponse(
             id=row.id,
             scenario=row.scenario,
@@ -397,7 +411,45 @@ def build_router(get_current_user: GetCurrentUser) -> APIRouter:
             events=service.visible_events(events, seat),
             spectators=sum(1 for item in seats if item.role == "spectator"),
             is_host=row.host_id == user.user_id,
+            items_enabled=items_enabled,
         )
+
+    @router.get("/{session_id}/item-catalog", response_model=ItemCatalogResponse)
+    async def get_item_catalog(
+        session_id: uuid.UUID,
+        user: Annotated[CurrentUser, Depends(get_current_user)],
+        resources: Annotated[Resources, Depends(get_resources)],
+    ) -> ItemCatalogResponse:
+        """Каталог предметов сессии для frontend-куклы (подэтап 7): полные Item.
+
+        Видимость: dm — все предметы сценария; player/spectator — public, открытые
+        (state.revealed) и выданные любому актёру (владение раскрывает предмет).
+        Механика выключена или версия не закреплена — пустой каталог.
+        """
+        sessions = resources.db_sessions
+        row, seat = await _session_and_seat(sessions, session_id, user)
+        if row.scenario_version_id is None:
+            return ItemCatalogResponse(items_enabled=False, items=[])
+        if not await version_items_enabled(sessions, row.scenario_version_id):
+            return ItemCatalogResponse(items_enabled=False, items=[])
+        content = await load_game_content_from_db(
+            sessions, row.scenario_version_id, get_settings().content_dir
+        )
+        items = list(content.scenario.items)
+        if seat.role != "dm":
+            state = SessionState.model_validate(row.state)
+            granted = {
+                entry.item_id
+                for entries in state.inventory.values()
+                for entry in entries
+                if entry.item_id is not None
+            }
+            items = [
+                item
+                for item in items
+                if item.visibility == "public" or state.is_revealed(item.id) or item.id in granted
+            ]
+        return ItemCatalogResponse(items_enabled=True, items=items)
 
     @router.get("/{session_id}/events", response_model=EventsResponse)
     async def get_events(

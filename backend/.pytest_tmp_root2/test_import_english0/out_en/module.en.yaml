@@ -1,0 +1,28 @@
+scenario:
+  title: (stub) Imported scenario
+  language: en
+  ruleset: dnd5e-srd@1
+  sheet_template: srd5-basic@1
+  start_scene: start
+  synopsis: '(stub) Short module synopsis: replace with the author''s text.'
+  class_pack: fantasy-core
+  available_classes: []
+  items_enabled: true
+scenes:
+- id: start
+  title: (stub) Imported scenario
+  read_aloud: (stub) You stand at the start of the adventure. The DM awaits your actions.
+  npcs: []
+  items: []
+  clues: []
+  handouts: []
+  encounters: []
+  exits: []
+  checks: []
+npcs: []
+items: []
+clues: []
+handouts: []
+encounters: []
+lore: []
+statblocks: {}

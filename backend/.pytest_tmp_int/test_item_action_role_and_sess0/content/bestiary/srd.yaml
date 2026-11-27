@@ -1,0 +1,163 @@
+# Базовые существа из SRD 5.1. Ссылка из сценария: srd:goblin, srd:cultist и так далее.
+#
+# checks и saves — готовые бонусы. Навык, которого в списке нет, считается по своей
+# характеристике. hp — среднее значение, hit_dice — кости хитов из SRD.
+# traits — то, что движок сам не считает: это учитывает ведущий.
+id: srd
+name: {ru: "Существа SRD 5.1", en: "SRD 5.1 creatures"}
+ruleset: dnd5e-srd@1
+
+monsters:
+  commoner:
+    name: {ru: Обыватель, en: Commoner}
+    ac: 10
+    hp: 4
+    hit_dice: 1d8
+    checks: {str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0}
+    saves: {str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0}
+    attacks:
+      club: {name: {ru: Дубинка, en: Club}, bonus: 2, damage: 1d4, damage_type: bludgeoning}
+    tactics: {flee_below: 0.5}
+
+  guard:
+    name: {ru: Стражник, en: Guard}
+    ac: 16
+    hp: 11
+    hit_dice: 2d8+2
+    initiative: 1
+    checks: {str: 1, dex: 1, con: 1, int: 0, wis: 0, cha: 0, perception: 2}
+    saves: {str: 1, dex: 1, con: 1, int: 0, wis: 0, cha: 0}
+    attacks:
+      spear: {name: {ru: Копьё, en: Spear}, bonus: 3, damage: 1d6+1, damage_type: piercing}
+
+  bandit:
+    name: {ru: Разбойник, en: Bandit}
+    ac: 12
+    hp: 11
+    hit_dice: 2d8+2
+    initiative: 1
+    checks: {str: 0, dex: 1, con: 1, int: 0, wis: 0, cha: 0}
+    saves: {str: 0, dex: 1, con: 1, int: 0, wis: 0, cha: 0}
+    attacks:
+      scimitar: {name: {ru: Скимитар, en: Scimitar}, bonus: 3, damage: 1d6+1, damage_type: slashing}
+      light_crossbow: {name: {ru: Лёгкий арбалет, en: Light crossbow}, bonus: 3, damage: 1d8+1, damage_type: piercing}
+    tactics: {flee_below: 0.3}
+
+  cultist:
+    name: {ru: Культист, en: Cultist}
+    ac: 12
+    hp: 9
+    hit_dice: 2d8
+    initiative: 1
+    checks: {str: 0, dex: 1, con: 0, int: 0, wis: 0, cha: 0, deception: 2, religion: 2}
+    saves: {str: 0, dex: 1, con: 0, int: 0, wis: 0, cha: 0}
+    attacks:
+      scimitar: {name: {ru: Скимитар, en: Scimitar}, bonus: 3, damage: 1d6+1, damage_type: slashing}
+    traits:
+      ru: "Тёмная преданность: преимущество на спасброски от очарования и испуга."
+      en: "Dark Devotion: advantage on saving throws against being charmed or frightened."
+
+  cult_fanatic:
+    name: {ru: Фанатик культа, en: Cult fanatic}
+    ac: 13
+    hp: 33
+    hit_dice: 6d8+6
+    initiative: 2
+    checks: {str: 0, dex: 2, con: 1, int: 0, wis: 1, cha: 2, deception: 4, persuasion: 4, religion: 2}
+    saves: {str: 0, dex: 2, con: 1, int: 0, wis: 1, cha: 2}
+    attacks:
+      dagger: {name: {ru: Кинжал, en: Dagger}, bonus: 4, damage: 1d4+2, damage_type: piercing}
+    traits:
+      ru: >-
+        Мультиатака: две атаки кинжалом за действие. Тёмная преданность: преимущество
+        на спасброски от очарования и испуга. Заклинания (Мудрость, сложность 11):
+        священное пламя, приказ, нанесение ран, щит веры, удержание личности,
+        божественное оружие.
+      en: >-
+        Multiattack: two dagger attacks per action. Dark Devotion: advantage on saving
+        throws against being charmed or frightened. Spellcasting (Wisdom, save DC 11):
+        sacred flame, command, inflict wounds, shield of faith, hold person,
+        spiritual weapon.
+
+  goblin:
+    name: {ru: Гоблин, en: Goblin}
+    ac: 15
+    hp: 7
+    hit_dice: 2d6
+    initiative: 2
+    checks: {str: -1, dex: 2, con: 0, int: 0, wis: -1, cha: -1, stealth: 6}
+    saves: {str: -1, dex: 2, con: 0, int: 0, wis: -1, cha: -1}
+    attacks:
+      scimitar: {name: {ru: Скимитар, en: Scimitar}, bonus: 4, damage: 1d6+2, damage_type: slashing}
+      shortbow: {name: {ru: Короткий лук, en: Shortbow}, bonus: 4, damage: 1d6+2, damage_type: piercing}
+    tactics: {flee_below: 0.25}
+    traits:
+      ru: "Проворный побег: Отход или Засада бонусным действием."
+      en: "Nimble Escape: Disengage or Hide as a bonus action."
+
+  wolf:
+    name: {ru: Волк, en: Wolf}
+    ac: 13
+    hp: 11
+    hit_dice: 2d8+2
+    initiative: 2
+    checks: {str: 1, dex: 2, con: 1, int: -4, wis: 1, cha: -2, perception: 3, stealth: 4}
+    saves: {str: 1, dex: 2, con: 1, int: -4, wis: 1, cha: -2}
+    attacks:
+      bite: {name: {ru: Укус, en: Bite}, bonus: 4, damage: 2d4+2, damage_type: piercing}
+    traits:
+      ru: >-
+        Тактика стаи: преимущество на атаку, если рядом с целью союзник волка.
+        Укус: цель делает спасбросок Силы (сложность 11), при провале сбита с ног.
+      en: >-
+        Pack Tactics: advantage on an attack if an ally of the wolf is next to the target.
+        Bite: the target makes a Strength save (DC 11) or is knocked prone.
+
+  giant_rat:
+    name: {ru: Гигантская крыса, en: Giant rat}
+    ac: 12
+    hp: 7
+    hit_dice: 2d6
+    initiative: 2
+    checks: {str: -2, dex: 2, con: 0, int: -4, wis: 0, cha: -3}
+    saves: {str: -2, dex: 2, con: 0, int: -4, wis: 0, cha: -3}
+    attacks:
+      bite: {name: {ru: Укус, en: Bite}, bonus: 4, damage: 1d4+2, damage_type: piercing}
+    traits:
+      ru: "Тактика стаи: преимущество на атаку, если рядом с целью союзник крысы."
+      en: "Pack Tactics: advantage on an attack if an ally of the rat is next to the target."
+
+  skeleton:
+    name: {ru: Скелет, en: Skeleton}
+    ac: 13
+    hp: 13
+    hit_dice: 2d8+4
+    initiative: 2
+    checks: {str: 0, dex: 2, con: 2, int: -2, wis: -1, cha: -3}
+    saves: {str: 0, dex: 2, con: 2, int: -2, wis: -1, cha: -3}
+    attacks:
+      shortsword: {name: {ru: Короткий меч, en: Shortsword}, bonus: 4, damage: 1d6+2, damage_type: piercing}
+      shortbow: {name: {ru: Короткий лук, en: Shortbow}, bonus: 4, damage: 1d6+2, damage_type: piercing}
+    vulnerabilities: [bludgeoning]
+    immunities: [poison]
+
+  zombie:
+    name: {ru: Зомби, en: Zombie}
+    ac: 8
+    hp: 22
+    hit_dice: 3d8+9
+    initiative: -2
+    checks: {str: 1, dex: -2, con: 3, int: -4, wis: -2, cha: -3}
+    saves: {str: 1, dex: -2, con: 3, int: -4, wis: 0, cha: -3}
+    attacks:
+      slam: {name: {ru: Удар, en: Slam}, bonus: 3, damage: 1d6+1, damage_type: bludgeoning}
+    immunities: [poison]
+    traits:
+      ru: >-
+        Стойкость нежити: упав до 0 хитов, зомби делает спасбросок Телосложения
+        (сложность 5 + полученный урон) и при успехе остаётся с 1 хитом. Не действует
+        против излучения и критических попаданий.
+      en: >-
+        Undead Fortitude: when reduced to 0 hit points, the zombie makes a Constitution
+        save (DC 5 + the damage taken) and on a success drops to 1 hit point instead.
+        Does not work against radiant damage or critical hits.

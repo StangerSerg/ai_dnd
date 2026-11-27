@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Own project icon: flat breastplate, steel with gold trim -->
+  <path d="M16 8l8-4c2 4 5 6 8 6s6-2 8-6l8 4-2 14c0 16-6 28-14 34C24 50 18 38 18 22z" fill="#aab3bd"/>
+  <path d="M32 10c3 0 6-2 8-6l8 4-2 14c0 16-6 28-14 34z" fill="#7d8894"/>
+  <path d="M24 18c2 8 4 12 8 14 4-2 6-6 8-14" fill="none" stroke="#cfd6dd" stroke-width="3" stroke-linecap="round"/>
+  <path d="M16 8l8-4c2 4 5 6 8 6s6-2 8-6l8 4-.6 4.2C40 14 36 16 32 16s-8-2-15.4-3.8z" fill="#c8a56a"/>
+  <circle cx="32" cy="40" r="3.4" fill="#f2cf8e"/>
+</svg>

@@ -17,6 +17,7 @@ class CureWoundsCapability(BaseModel):
     spell_id: Literal["cure_wounds"]
     prepared: bool
     disciple_of_life: bool = False
+    consumes_slot: bool = True
     spellcasting_modifier: int = Field(ge=-5, le=10)
 
     @property

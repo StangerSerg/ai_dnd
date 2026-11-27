@@ -36,7 +36,7 @@ models:
 # семантическая корректность не гарантирована, окончательная оценка — в 1.8.
 tasks:
   # Текст для игроков: описания, реплики NPC.
-  narration: {model: deepseek-flash, thinking: false, max_tokens: 800, temperature: 0.3, timeout: 60}
+  narration: {model: deepseek-flash, thinking: false, max_tokens: 1600, temperature: 0.3, timeout: 60}
   # Ход ведущего с инструментами: решить, нужна ли проверка, и вызвать её.
   # Pro выбран по адресным live-пробам 17.11; окончательная оценка — в 1.8.
   dm_tools: {model: deepseek-v4-pro, thinking: false, max_tokens: 800, temperature: 0.2, timeout: 60}
@@ -45,9 +45,15 @@ tasks:
   # Действие ИИ-игрока.
   ai_player: {model: deepseek-flash, thinking: false, max_tokens: 400, temperature: 1.0, timeout: 45}
   # Разбор сценария из файла на сущности.
-  import: {model: deepseek-flash, thinking: true, reasoning_effort: low, max_tokens: 16000, timeout: 300}
+  import: {model: deepseek-flash, thinking: true, reasoning_effort: low, max_tokens: 16000, budget_window_tokens: 524288, timeout: 300}
   # Шаблон карточки по описанию словами.
-  sheet_gen: {model: deepseek-flash, thinking: true, reasoning_effort: low, max_tokens: 16000, timeout: 300}
+  sheet_gen: {model: deepseek-flash, thinking: true, reasoning_effort: low, max_tokens: 16000, budget_window_tokens: 524288, timeout: 300}
+
+# Защитный бюджет приложения, не заявленная ёмкость контекста модели.
+# Вход оценивается по UTF-8 байтам JSON с запасом на framing; это не tokenizer DeepSeek.
+budget:
+  window_tokens: 131072
+  output_margin_tokens: 1024
 
 retries:
   # Сколько раз пробовать при временном сбое: таймаут, обрыв связи, перегрузка.

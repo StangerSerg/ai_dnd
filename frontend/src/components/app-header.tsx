@@ -33,6 +33,7 @@ export function AppHeader() {
         <nav className="ml-4 hidden items-center gap-1 sm:flex" aria-label={t('appTitle')}>
           <Link to="/games" className={navLink} activeProps={{ className: activeLink }}>{t('nav.games')}</Link>
           <Link to="/characters" className={navLink} activeProps={{ className: activeLink }}>{t('nav.characters')}</Link>
+          <Link to="/author/items" className={navLink} activeProps={{ className: activeLink }} data-testid="nav-author-items">{t('nav.items')}</Link>
           <Link to="/profile" className={navLink} activeProps={{ className: activeLink }}>{t('nav.profile')}</Link>
           {(user?.role === 'admin' || user?.role === 'moderator') && (
             <Link to="/admin" className={navLink} activeProps={{ className: activeLink }} data-testid="nav-admin">{t('admin:navLink')}</Link>
@@ -68,6 +69,7 @@ export function AppHeader() {
       <nav className="flex items-center gap-1 overflow-x-auto border-t px-2 py-1 sm:hidden" aria-label={t('appTitle')}>
         <Link to="/games" className={navLink} activeProps={{ className: activeLink }}>{t('nav.games')}</Link>
         <Link to="/characters" className={navLink} activeProps={{ className: activeLink }}>{t('nav.characters')}</Link>
+        <Link to="/author/items" className={navLink} activeProps={{ className: activeLink }} data-testid="nav-author-items-mobile">{t('nav.items')}</Link>
         <Link to="/profile" className={navLink} activeProps={{ className: activeLink }}>{t('nav.profile')}</Link>
         {(user?.role === 'admin' || user?.role === 'moderator') && (
           <Link to="/admin" className={navLink} activeProps={{ className: activeLink }} data-testid="nav-admin-mobile">{t('admin:navLink')}</Link>

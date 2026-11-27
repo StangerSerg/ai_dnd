@@ -1,0 +1,46 @@
+{
+  "template": "srd5-basic@1",
+  "values": {
+    "name": "Brand",
+    "race": "Human",
+    "char_class": "Fighter",
+    "background": "Town guard",
+    "alignment": "Lawful neutral",
+    "level": 3,
+    "xp": 900,
+    "str": 16,
+    "dex": 13,
+    "con": 15,
+    "int": 10,
+    "wis": 12,
+    "cha": 8,
+    "save_str_prof": true,
+    "save_con_prof": true,
+    "athletics_prof": "proficient",
+    "intimidation_prof": "proficient",
+    "perception_prof": "proficient",
+    "survival_prof": "proficient",
+    "armor_type": "heavy",
+    "armor_base": 16,
+    "shield": true,
+    "ac_bonus": 1,
+    "hit_die": 10,
+    "hp": {"current": 28},
+    "hit_dice": {"current": 3},
+    "attacks": [
+      {"name": "Longsword", "bonus": 5, "damage": "1d8+3", "damage_type": "slashing", "notes": ""},
+      {"name": "Light crossbow", "bonus": 3, "damage": "1d8+1", "damage_type": "piercing", "notes": "range 80/320 ft"}
+    ],
+    "gp": 15,
+    "inventory": [
+      {"name": "Chain mail", "qty": 1, "notes": "AC 16, disadvantage on Stealth"},
+      {"name": "Shield", "qty": 1, "notes": "+2 AC"},
+      {"name": "Longsword", "qty": 1, "notes": ""},
+      {"name": "Light crossbow", "qty": 1, "notes": ""},
+      {"name": "Crossbow bolts", "qty": 20, "notes": ""},
+      {"name": "Explorer's pack", "qty": 1, "notes": ""}
+    ],
+    "features": "Fighting Style (Defense): +1 AC while wearing armor.\nSecond Wind: bonus action to regain 1d10 + 3 hit points, once per short rest.\nAction Surge: one additional action on your turn, once per short rest.\nChampion archetype: critical hit on a roll of 19–20.",
+    "proficiencies": "All armor and shields, simple and martial weapons. Languages: Common, Dwarvish."
+  }
+}

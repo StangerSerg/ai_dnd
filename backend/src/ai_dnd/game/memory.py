@@ -62,4 +62,7 @@ async def build_summary(
         Message.user(summary_user_message(previous_summary, turns)),
     ]
     response = await gateway.complete("summary", messages)
-    return response.text.strip()
+    recap = response.text.strip()
+    if not recap:
+        raise ValueError("Summary response was empty")
+    return recap

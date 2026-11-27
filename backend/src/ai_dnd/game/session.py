@@ -22,6 +22,7 @@ from ai_dnd.game.events import (
     ItemEnhanced,
     ItemEquipped,
     ItemGranted,
+    ItemSpent,
     ItemUnequipped,
     ItemUsed,
     JournalEvent,
@@ -29,14 +30,17 @@ from ai_dnd.game.events import (
     NpcAttitudeChanged,
     NpcDied,
     NpcMoved,
+    RestTaken,
     Revealed,
     SceneChanged,
     SummaryUpdated,
 )
 from ai_dnd.game.spells import CureWoundsCapability
+from ai_dnd.game.tones import Tone
 from ai_dnd.rules.apply import apply
 from ai_dnd.rules.engine import ITEM_CONDITION_PREFIX, buff_condition_id, item_condition_id
-from ai_dnd.rules.state import ActiveCondition, GameState
+from ai_dnd.rules.events import CombatEnded
+from ai_dnd.rules.state import ActiveCondition, Actor, AttackProfile, GameState
 from ai_dnd.scenarios.schemas import MAX_ITEM_ENHANCEMENT, ItemSlot
 
 # Насколько ведущему-ИИ можно отходить от сценария (архитектура, раздел 5.3):
@@ -66,6 +70,7 @@ class SessionSetup(_Frozen):
     scenario: str
     language: str
     improvisation: Improvisation = "moderate"
+    tone: Tone = "default"
     seats: tuple[PlayerSeat, ...]
 
     def seat(self, actor_id: str) -> PlayerSeat | None:
@@ -104,6 +109,9 @@ class SessionState(_Frozen):
     equipment: dict[str, dict[str, ItemSlot]] = Field(default_factory=dict)
     facts: tuple[str, ...] = ()
     started_encounters: tuple[str, ...] = ()
+    active_encounter_id: str | None = None
+    encounter_outcomes: dict[str, str | None] = Field(default_factory=dict)
+    used_rests: tuple[str, ...] = ()
     # Сводка «что было раньше» и сколько записей истории в неё свёрнуто (раздел 9.3).
     summary: str = ""
     summary_through_turn: int = 0
@@ -117,7 +125,16 @@ class SessionState(_Frozen):
 def apply_event(state: SessionState, event: JournalEvent) -> SessionState:
     """Состояние после события. Событие движка правил меняет ``rules``."""
     if not isinstance(event, GameEventBase):
-        return state.model_copy(update={"rules": apply(state.rules, event)})
+        rules = apply(state.rules, event)
+        if isinstance(event, CombatEnded) and state.active_encounter_id is not None:
+            outcomes = {
+                **state.encounter_outcomes,
+                state.active_encounter_id: event.winner,
+            }
+            return state.model_copy(
+                update={"rules": rules, "active_encounter_id": None, "encounter_outcomes": outcomes}
+            )
+        return state.model_copy(update={"rules": rules})
 
     match event:
         case SceneChanged():
@@ -156,6 +173,8 @@ def apply_event(state: SessionState, event: JournalEvent) -> SessionState:
             return _unequip(state, event.actor_id, event.item_id)
         case ItemUsed():
             return _consume(state, event)
+        case ItemSpent():
+            return _consume(state, event)
         case ItemEnhanced():
             return _enhance(state, event)
         case FactNoted():
@@ -169,8 +188,15 @@ def apply_event(state: SessionState, event: JournalEvent) -> SessionState:
             if event.encounter_id in state.started_encounters:
                 return state
             return state.model_copy(
-                update={"started_encounters": (*state.started_encounters, event.encounter_id)}
+                update={
+                    "started_encounters": (*state.started_encounters, event.encounter_id),
+                    "active_encounter_id": event.encounter_id,
+                }
             )
+        case RestTaken():
+            if event.rest_id in state.used_rests:
+                return state
+            return state.model_copy(update={"used_rests": (*state.used_rests, event.rest_id)})
         case Narrated():
             return state.model_copy(update={"turn": state.turn + 1})
         case SummaryUpdated():
@@ -185,6 +211,69 @@ def apply_events(state: SessionState, events: Iterable[JournalEvent]) -> Session
     for event in events:
         state = apply_event(state, event)
     return state
+
+
+def item_stock(state: SessionState, actor_id: str, item_id: str) -> int:
+    """Остаток предмета поперёк записей инвентаря (старые журналы допускают дубли)."""
+    return sum(
+        item.quantity for item in state.inventory.get(actor_id, ()) if item.item_id == item_id
+    )
+
+
+def attack_cost_id(profile: AttackProfile) -> str | None:
+    """Предмет, тратимый за попытку атаки: боеприпас или сам метательный предмет."""
+    return profile.ammo if profile.ammo is not None else profile.thrown_item
+
+
+def spend_item_event(
+    state: SessionState,
+    actor_id: str,
+    item_id: str,
+    quantity: int,
+    trigger: Literal["use", "attack", "throw", "spend"],
+) -> ItemSpent | None:
+    """Единый примитив расхода: событие, если остаток позволяет; None — отказ."""
+    entries = [item for item in state.inventory.get(actor_id, ()) if item.item_id == item_id]
+    if sum(item.quantity for item in entries) < quantity:
+        return None
+    return ItemSpent(
+        actor_id=actor_id,
+        item_id=item_id,
+        name=entries[0].name,
+        quantity=quantity,
+        trigger=trigger,
+    )
+
+
+def _attack_affordable(state: SessionState, actor: Actor, profile: AttackProfile) -> bool:
+    """Есть ли чем платить за атаку: предметный ста и числовой ресурс боезапаса."""
+    cost = attack_cost_id(profile)
+    if cost is not None and item_stock(state, actor.id, cost) <= 0:
+        return False
+    if profile.ammo_resource is not None:
+        resource = actor.resources.get(profile.ammo_resource)
+        # Ресурса у актёра нет — платить нечем, атаку скрываем, как пустой лук.
+        if resource is None or resource.current <= 0:
+            return False
+    return True
+
+
+def affordable_rules(state: SessionState, actor_id: str) -> GameState:
+    """Правила без атак, которым нечем платить: опции и тактика их не видят.
+
+    Копия только для выбора действия; журнал и живое состояние не меняются.
+    """
+    actor = state.rules.actors.get(actor_id)
+    if actor is None:
+        return state.rules
+    attacks = {
+        key: profile
+        for key, profile in actor.attacks.items()
+        if _attack_affordable(state, actor, profile)
+    }
+    if len(attacks) == len(actor.attacks):
+        return state.rules
+    return state.rules.with_actor(actor.model_copy(update={"attacks": attacks}))
 
 
 def _inventory_entry(state: SessionState, actor_id: str, item_id: str) -> InventoryItem | None:
@@ -240,8 +329,14 @@ def _equip(state: SessionState, event: ItemEquipped) -> SessionState:
             if slot == event.slot and other_id != event.item_id:
                 del worn[other_id]
                 rules = _without_item_condition(rules, event.actor_id, other_id)
+                rules = _without_item_attack(rules, event.actor_id, other_id)
     worn[event.item_id] = event.slot
     rules = _with_item_condition(rules, event.actor_id, event.item_id, entry.enhancement)
+    if event.attack is not None:
+        actor = rules.actors.get(event.actor_id)
+        if actor is not None:
+            attacks = {**actor.attacks, f"item:{event.item_id}": event.attack}
+            rules = rules.with_actor(actor.model_copy(update={"attacks": attacks}))
     return state.model_copy(
         update={"equipment": _set_worn(state, event.actor_id, worn), "rules": rules}
     )
@@ -252,29 +347,42 @@ def _unequip(state: SessionState, actor_id: str, item_id: str) -> SessionState:
     if worn.pop(item_id, None) is None:
         return state
     rules = _without_item_condition(state.rules, actor_id, item_id)
+    rules = _without_item_attack(rules, actor_id, item_id)
     return state.model_copy(update={"equipment": _set_worn(state, actor_id, worn), "rules": rules})
 
 
-def _consume(state: SessionState, event: ItemUsed) -> SessionState:
-    entry = _inventory_entry(state, event.actor_id, event.item_id)
-    if entry is None:
+def _without_item_attack(rules: GameState, actor_id: str, item_id: str) -> GameState:
+    actor = rules.actors.get(actor_id)
+    attack_id = f"item:{item_id}"
+    if actor is None or attack_id not in actor.attacks:
+        return rules
+    attacks = {key: profile for key, profile in actor.attacks.items() if key != attack_id}
+    return rules.with_actor(actor.model_copy(update={"attacks": attacks}))
+
+
+def _consume(state: SessionState, event: ItemUsed | ItemSpent) -> SessionState:
+    owned = state.inventory.get(event.actor_id, ())
+    quantity = 1 if isinstance(event, ItemUsed) else event.quantity
+    available = sum(item.quantity for item in owned if item.item_id == event.item_id)
+    if available < quantity:
         return state
-    if entry.quantity <= 1:
-        kept = tuple(
-            item for item in state.inventory[event.actor_id] if item.item_id != event.item_id
-        )
-    else:
-        kept = tuple(
-            item.model_copy(update={"quantity": item.quantity - 1})
-            if item.item_id == event.item_id
-            else item
-            for item in state.inventory[event.actor_id]
-        )
+    # Old journals may have several entries for the same scenario id. Spend across
+    # them in order and keep the replay deterministic.
+    remaining = quantity
+    kept: list[InventoryItem] = []
+    for item in owned:
+        if item.item_id != event.item_id or remaining == 0:
+            kept.append(item)
+            continue
+        take = min(item.quantity, remaining)
+        remaining -= take
+        if item.quantity > take:
+            kept.append(item.model_copy(update={"quantity": item.quantity - take}))
     state = state.model_copy(update={"inventory": {**state.inventory, event.actor_id: kept}})
-    if entry.quantity <= 1:
+    if available == quantity:
         # Последняя доза: предмет исчезает вместе со слотом, если был надет.
         state = _unequip(state, event.actor_id, event.item_id)
-    if event.effect == "buff":
+    if isinstance(event, ItemUsed) and event.effect == "buff":
         actor = state.rules.actors.get(event.actor_id)
         if actor is not None:
             condition = ActiveCondition(id=buff_condition_id(event.item_id), rounds=event.rounds)

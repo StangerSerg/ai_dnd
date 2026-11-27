@@ -1,0 +1,289 @@
+{
+  "id": "magic-world",
+  "version": 1,
+  "name": {
+    "ru": "Магический мир"
+  },
+  "resolution": {
+    "type": "roll_vs_target",
+    "dice": "1d20",
+    "critical_success": 20,
+    "critical_failure": 1
+  },
+  "difficulty": {
+    "very_easy": 5,
+    "easy": 10,
+    "medium": 15,
+    "hard": 20,
+    "very_hard": 25,
+    "nearly_impossible": 30
+  },
+  "checks": {
+    "str": {
+      "label": {
+        "ru": "Физическая сила"
+      }
+    },
+    "dex": {
+      "label": {
+        "ru": "Подвижность"
+      }
+    },
+    "con": {
+      "label": {
+        "ru": "Стойкость"
+      }
+    },
+    "int": {
+      "label": {
+        "ru": "Познание магии"
+      }
+    },
+    "wis": {
+      "label": {
+        "ru": "Чутьё мира"
+      }
+    },
+    "cha": {
+      "label": {
+        "ru": "Влияние"
+      }
+    },
+    "acrobatics": {
+      "label": {
+        "ru": "Ловкое движение"
+      },
+      "ability": "dex"
+    },
+    "animal_handling": {
+      "label": {
+        "ru": "Общение с существами"
+      },
+      "ability": "wis"
+    },
+    "arcana": {
+      "label": {
+        "ru": "Плетение магии"
+      },
+      "ability": "int"
+    },
+    "athletics": {
+      "label": {
+        "ru": "Физическое усилие"
+      },
+      "ability": "str"
+    },
+    "deception": {
+      "label": {
+        "ru": "Обман"
+      },
+      "ability": "cha"
+    },
+    "history": {
+      "label": {
+        "ru": "Память о мире"
+      },
+      "ability": "int"
+    },
+    "insight": {
+      "label": {
+        "ru": "Понимание намерений"
+      },
+      "ability": "wis"
+    },
+    "intimidation": {
+      "label": {
+        "ru": "Угроза"
+      },
+      "ability": "cha"
+    },
+    "investigation": {
+      "label": {
+        "ru": "Исследование"
+      },
+      "ability": "int"
+    },
+    "medicine": {
+      "label": {
+        "ru": "Помощь раненому"
+      },
+      "ability": "wis"
+    },
+    "nature": {
+      "label": {
+        "ru": "Природа стихий"
+      },
+      "ability": "int"
+    },
+    "perception": {
+      "label": {
+        "ru": "Внимательность"
+      },
+      "ability": "wis"
+    },
+    "performance": {
+      "label": {
+        "ru": "Выступление"
+      },
+      "ability": "cha"
+    },
+    "persuasion": {
+      "label": {
+        "ru": "Убеждение"
+      },
+      "ability": "cha"
+    },
+    "religion": {
+      "label": {
+        "ru": "Предания мира"
+      },
+      "ability": "int"
+    },
+    "sleight_of_hand": {
+      "label": {
+        "ru": "Ловкость рук"
+      },
+      "ability": "dex"
+    },
+    "stealth": {
+      "label": {
+        "ru": "Скрытность"
+      },
+      "ability": "dex"
+    },
+    "survival": {
+      "label": {
+        "ru": "Жизнь в дикой природе"
+      },
+      "ability": "wis"
+    }
+  },
+  "saves": {
+    "str": {
+      "label": {
+        "ru": "Сопротивление: Физическая сила"
+      },
+      "ability": "str"
+    },
+    "dex": {
+      "label": {
+        "ru": "Сопротивление: Подвижность"
+      },
+      "ability": "dex"
+    },
+    "con": {
+      "label": {
+        "ru": "Сопротивление: Стойкость"
+      },
+      "ability": "con"
+    },
+    "int": {
+      "label": {
+        "ru": "Сопротивление: Познание магии"
+      },
+      "ability": "int"
+    },
+    "wis": {
+      "label": {
+        "ru": "Сопротивление: Чутьё мира"
+      },
+      "ability": "wis"
+    },
+    "cha": {
+      "label": {
+        "ru": "Сопротивление: Влияние"
+      },
+      "ability": "cha"
+    }
+  },
+  "damage_types": {
+    "fire": {
+      "ru": "Огонь"
+    },
+    "cold": {
+      "ru": "Ледяной холод"
+    }
+  },
+  "resources": {
+    "hp": {
+      "label": {
+        "ru": "Жизненная сила"
+      },
+      "recovery": {
+        "rest": "long",
+        "amount": "full"
+      }
+    }
+  },
+  "conditions": {
+    "incapacitated": {
+      "label": {
+        "ru": "Без сил"
+      },
+      "prevents_actions": true
+    },
+    "blinded": {
+      "label": {
+        "ru": "Ослеплён"
+      },
+      "effects": [
+        {
+          "applies_to": "attacks",
+          "mode": "disadvantage"
+        },
+        {
+          "applies_to": "attacks_against",
+          "mode": "advantage"
+        }
+      ]
+    },
+    "restrained": {
+      "label": {
+        "ru": "Скован"
+      },
+      "effects": [
+        {
+          "applies_to": "attacks",
+          "mode": "disadvantage"
+        },
+        {
+          "applies_to": "attacks_against",
+          "mode": "advantage"
+        }
+      ]
+    },
+    "hidden": {
+      "label": {
+        "ru": "Скрыт"
+      },
+      "effects": [
+        {
+          "applies_to": "attacks",
+          "mode": "advantage"
+        },
+        {
+          "applies_to": "attacks_against",
+          "mode": "disadvantage"
+        }
+      ]
+    }
+  },
+  "combat": {
+    "enabled": true,
+    "initiative_dice": "1d20",
+    "turn": {
+      "action": 1,
+      "bonus_action": 1,
+      "movement": 1
+    },
+    "attack_dice": "1d20",
+    "critical_hit": 20,
+    "automatic_miss": 1,
+    "critical_damage": "double_dice",
+    "zero_hp": {
+      "condition": "incapacitated",
+      "creatures_die": true
+    }
+  },
+  "summary": "Мир пронизан магией: все жители владеют ею, обычного оружия и воинов нет. Любой маг сразу владеет огнём, воздухом и водой; выбор стихии при создании не требуется. Стартовые формы: Огненная стрела (огонь, одна цель), Ледяной ветер (воздух, урон холодом, одна цель), Водное лечение (вода, восстановление жизненной силы вне боя). Ледяной щит — пассивная защита воды +2, а не отдельная выбираемая форма. В этой адаптации щит не отбивает одну атаку: движок пока не поддерживает такое действие. Магические атаки разрешаются броском d20 + бонус против магической защиты цели. При 0 жизненной силы герой без сил, существо погибает. Значения сложности и боевые числа являются авторской адаптацией для v0.2, не числами первоисточника. Изучение и замена новых форм, лимит трёх форм, массовые заклинания и общая система магических затрат пока не реализованы. В ядре действие RestAction при полном отдыхе восстанавливает жизненную силу полностью, при коротком — не восстанавливает. Это правило адаптации v0.2, а не первоисточника. В текущем игровом интерфейсе и диалоге команды отдыха нет: фраза о ночлеге не начисляет жизненную силу. Водное лечение доступно вне боя себе или союзнику по инструменту лечения; у готового мага каждое применение восстанавливает 1d8+2, без ограничения числа применений и без расхода ресурса. В свободной сцене просьба «Водное лечение» или «лечу водой» означает существующий инструмент cast_cure_wounds1 с аргументами caster_id и target_id: настоящими id заклинателя и конкретной цели из отряда; это поддержанное лечение, не неподдержанное заклинание. Не применять автоматически без просьбы игрока. Навык water_healing — подготовленная способность лечения, использующая этот же инструмент."
+}

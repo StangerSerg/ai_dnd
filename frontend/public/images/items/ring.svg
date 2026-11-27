@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Own project icon: flat gold ring with a blue gem -->
+  <circle cx="32" cy="38" r="18" fill="none" stroke="#c8a56a" stroke-width="7"/>
+  <path d="M14 38a18 18 0 0 1 18-18v7a11 11 0 0 0-11 11z" fill="#f2cf8e"/>
+  <path d="M32 6l8 8-8 9-8-9z" fill="#6f8fae"/>
+  <path d="M32 6l8 8-8 9z" fill="#54718c"/>
+  <path d="M24 14h16l-8 9z" fill="#a9c4dc"/>
+</svg>

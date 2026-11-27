@@ -1,0 +1,47 @@
+{
+  "template": "srd5-basic@1",
+  "values": {
+    "name": "Mira",
+    "race": "Halfling (lightfoot)",
+    "char_class": "Rogue",
+    "background": "Drifter",
+    "alignment": "Chaotic good",
+    "level": 3,
+    "xp": 900,
+    "str": 8,
+    "dex": 17,
+    "con": 12,
+    "int": 13,
+    "wis": 12,
+    "cha": 14,
+    "save_dex_prof": true,
+    "save_int_prof": true,
+    "acrobatics_prof": "proficient",
+    "deception_prof": "proficient",
+    "investigation_prof": "proficient",
+    "perception_prof": "proficient",
+    "sleight_of_hand_prof": "expertise",
+    "stealth_prof": "expertise",
+    "armor_type": "light",
+    "armor_base": 11,
+    "speed": 25,
+    "hit_die": 8,
+    "hp": {"current": 21},
+    "hit_dice": {"current": 3},
+    "attacks": [
+      {"name": "Rapier", "bonus": 5, "damage": "1d8+3", "damage_type": "piercing", "notes": "finesse"},
+      {"name": "Shortbow", "bonus": 5, "damage": "1d6+3", "damage_type": "piercing", "notes": "range 80/320 ft"}
+    ],
+    "gp": 22,
+    "inventory": [
+      {"name": "Leather armor", "qty": 1, "notes": "AC 11"},
+      {"name": "Rapier", "qty": 1, "notes": ""},
+      {"name": "Shortbow", "qty": 1, "notes": ""},
+      {"name": "Arrows", "qty": 20, "notes": ""},
+      {"name": "Thieves' tools", "qty": 1, "notes": ""},
+      {"name": "Burglar's pack", "qty": 1, "notes": ""}
+    ],
+    "features": "Sneak Attack: +2d6 damage once per turn with advantage or an ally next to the target.\nCunning Action: Dash, Disengage, or Hide as a bonus action.\nExpertise: Stealth and Sleight of Hand.\nThief archetype: Fast Hands, Second-Story Work.\nLucky: reroll a 1 on a d20.",
+    "proficiencies": "Light armor, simple weapons, hand crossbows, longswords, rapiers, shortswords. Thieves' tools. Languages: Common, Halfling, Thieves' Cant."
+  }
+}

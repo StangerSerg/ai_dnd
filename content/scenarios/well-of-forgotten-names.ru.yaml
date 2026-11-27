@@ -3,6 +3,7 @@ scenario:
   language: ru
   ruleset: dnd5e-srd@1
   sheet_template: srd5-basic@1
+  class_pack: fantasy-core
   start_scene: village_square
   synopsis: 'Деревня Ольховка стоит на старом кладбище, и по ночам из заброшенного колодца доносится шёпот:
     кто-то стирает имена умерших с могильных плит, и жители начинают забывать своих близких. Староста

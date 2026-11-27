@@ -61,7 +61,7 @@
     {"id": "missiles", "type": "resource", "label": {"ru": "Ракеты"}, "default_max": 4},
     {"id": "torpedoes", "type": "resource", "label": {"ru": "Плазменные торпеды"}, "default_max": 0},
     {"id": "spares", "type": "resource", "label": {"ru": "Запчасти"}, "default_max": 2},
-    {"id": "attacks", "type": "list", "label": {"ru": "Оружие"}, "item": {"name": {"type": "text", "label": {"ru": "Название"}}, "bonus": {"type": "number", "label": {"ru": "Бонус атаки"}}, "damage": {"type": "text", "label": {"ru": "Урон"}}, "damage_type": {"type": "text", "label": {"ru": "Тип урона"}}, "notes": {"type": "text", "label": {"ru": "Заметки"}}}},
+    {"id": "attacks", "type": "list", "label": {"ru": "Оружие"}, "item": {"name": {"type": "text", "label": {"ru": "Название"}}, "bonus": {"type": "number", "label": {"ru": "Бонус атаки"}}, "damage": {"type": "text", "label": {"ru": "Урон"}}, "damage_type": {"type": "text", "label": {"ru": "Тип урона"}}, "ammo_resource": {"type": "text", "label": {"ru": "Боезапас (id ресурса)"}}, "notes": {"type": "text", "label": {"ru": "Заметки"}}}},
     {"id": "cargo", "type": "list", "label": {"ru": "Трюм"}, "item": {"name": {"type": "text", "label": {"ru": "Груз"}}, "qty": {"type": "number", "label": {"ru": "Кол-во"}}, "notes": {"type": "text", "label": {"ru": "Заметки"}}}},
     {"id": "features", "type": "longtext", "label": {"ru": "Особенности и чертежи"}},
     {"id": "proficiencies", "type": "longtext", "label": {"ru": "Документация экипажа"}},
@@ -104,6 +104,6 @@
     "hp": "hp",
     "ac": "ac",
     "initiative": "initiative",
-    "attacks": {"field": "attacks", "name": "name", "bonus": "bonus", "damage": "damage", "damage_type": "damage_type"}
+    "attacks": {"field": "attacks", "name": "name", "bonus": "bonus", "damage": "damage", "damage_type": "damage_type", "ammo_resource": "ammo_resource"}
   }
 }

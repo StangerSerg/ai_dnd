@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from ai_dnd.rules.events import Event as RulesEvent
-from ai_dnd.rules.state import Actor
+from ai_dnd.rules.state import Actor, AttackProfile
 from ai_dnd.rules.visibility import DM, PUBLIC, Visibility
 from ai_dnd.scenarios.schemas import ItemSlot
 
@@ -98,6 +98,7 @@ class ItemEquipped(GameEventBase):
     name: str
     slot: ItemSlot
     replaced: str | None = None
+    attack: AttackProfile | None = None
 
 
 class ItemUnequipped(GameEventBase):
@@ -122,6 +123,17 @@ class ItemUsed(GameEventBase):
     effect: Literal["heal", "buff", "spell"]
     rounds: int | None = None
     spell: str | None = None
+
+
+class ItemSpent(GameEventBase):
+    """One journal entry for an arbitrary inventory cost, before its effect."""
+
+    type: Literal["ItemSpent"] = "ItemSpent"
+    actor_id: str
+    item_id: str
+    name: str
+    quantity: Annotated[int, Field(ge=1)] = 1
+    trigger: Literal["use", "attack", "throw", "spend"]
 
 
 class ItemEnhanced(GameEventBase):
@@ -156,6 +168,16 @@ class EncounterStarted(GameEventBase):
     encounter_id: str
 
 
+class RestTaken(GameEventBase):
+    """A scene's authored recovery was used, even when everyone was already healthy."""
+
+    type: Literal["RestTaken"] = "RestTaken"
+    rest_id: str
+    name: str
+    actor_ids: tuple[str, ...]
+    resources: tuple[str, ...]
+
+
 class SummaryUpdated(GameEventBase):
     """Сводка «что было раньше»: сжатие ходов, ушедших из дословного окна (раздел 9.3).
 
@@ -188,10 +210,12 @@ GameEvent = Annotated[
     | ItemEquipped
     | ItemUnequipped
     | ItemUsed
+    | ItemSpent
     | ItemEnhanced
     | FactNoted
     | ActorsJoined
     | EncounterStarted
+    | RestTaken
     | SummaryUpdated
     | PartyDefeated,
     Field(discriminator="type"),

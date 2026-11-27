@@ -1,0 +1,39 @@
+{
+  "template": "worms-ship@1",
+  "class_id": "ship_striker",
+  "values": {
+    "name": "Пульсар",
+    "race": "Штурмовой корвет",
+    "char_class": "Штурмовик",
+    "pilot": "Гера Седова",
+    "level": 2,
+    "engines": 14,
+    "sensors": 10,
+    "comms": 8,
+    "hull": 15,
+    "systems": 12,
+    "crew": 10,
+    "save_engines_prof": true,
+    "save_hull_prof": true,
+    "piloting_prof": "proficient",
+    "evasion_prof": "proficient",
+    "gunnery_prof": "proficient",
+    "command_prof": "proficient",
+    "ac_base": 11,
+    "hp_bonus": 5,
+    "hp": {"current": 27},
+    "missiles": {"current": 6, "max": 6},
+    "torpedoes": {"current": 0, "max": 0},
+    "spares": {"current": 3, "max": 3},
+    "attacks": [
+      {"name": "Лазерная установка Л-2", "bonus": 4, "damage": "1d6+4", "damage_type": "laser", "notes": "основной калибр, безлимитный"},
+      {"name": "Ракетная установка Р-40", "bonus": 4, "damage": "2d6", "damage_type": "missile", "notes": "расходует ракеты"}
+    ],
+    "cargo": [
+      {"name": "Запчасти", "qty": 2, "notes": "для ремонта в полёте нельзя — только на базе"},
+      {"name": "Бронелист", "qty": 1, "notes": "не установлен; в v0.2 даст +1 к hp и -1 к увороту"}
+    ],
+    "features": "Архетип «Штурмовик»: умение protect — перехват и прикрытие союзного корабля, принимая атаку на себя.\nУсиленный корпус: +5 к целостности.\nВзлётный комплект: 4 маршевых двигателя, 2 пары рулевых.",
+    "proficiencies": "Экипаж 6 человек; все — бывшие пилоты эвакуационных конвоев с Земли."
+  }
+}

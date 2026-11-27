@@ -1,0 +1,38 @@
+{
+  "template": "worms-ship@1",
+  "class_id": "ship_tender",
+  "values": {
+    "name": "Гефест",
+    "race": "Ремонтный корвет",
+    "char_class": "Тендер",
+    "pilot": "Мара Одинцова",
+    "level": 2,
+    "engines": 10,
+    "sensors": 11,
+    "comms": 13,
+    "hull": 13,
+    "systems": 14,
+    "crew": 12,
+    "save_systems_prof": true,
+    "save_comms_prof": true,
+    "engineering_prof": "expertise",
+    "negotiate_prof": "proficient",
+    "command_prof": "proficient",
+    "ac_base": 11,
+    "hp_bonus": 3,
+    "hp": {"current": 24},
+    "missiles": {"current": 8, "max": 8},
+    "torpedoes": {"current": 0, "max": 0},
+    "spares": {"current": 8, "max": 8},
+    "attacks": [
+      {"name": "Лазерная установка Л-2", "bonus": 3, "damage": "1d6+4", "damage_type": "laser", "notes": "основной калибр, безлимитный"},
+      {"name": "Ракетная установка Р-40", "bonus": 3, "damage": "2d6", "damage_type": "missile", "notes": "расходует ракеты"}
+    ],
+    "cargo": [
+      {"name": "Запчасти", "qty": 6, "notes": "общеколониальный резерв, вес 6 тонн"},
+      {"name": "Полевой сварочный комплект", "qty": 1, "notes": "ремонт на базе: 1 запчасть = 5 целостности"}
+    ],
+    "features": "Архетип «Тендер»: без боевых умений. Сила — в запасах: 8 запчастей и 8 ракет на борту.\nПолевой сварочный комплект: на базе тратит 1 запчасть, чтобы восстановить 5 целостности любого корабля (ведущий применяет adjust_resource вручную).\nКомпетентная инженерия: диагностирует чужие корабли и оборудование.",
+    "proficiencies": "Экипаж 8 человек; половина — техники Теплицы, умеют собирать гидропонику из подручного лома."
+  }
+}

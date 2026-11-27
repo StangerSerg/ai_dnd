@@ -1,7 +1,7 @@
 // Contracts generated from the backend OpenAPI schema (src/api/schema.d.ts).
 // Regenerate: backend OpenAPI -> frontend/openapi.json -> `npm run gen:api`.
 import type { components } from './schema'
-import type { RulesState } from './events'
+import type { ItemSlot, RulesState } from './events'
 
 export type Schemas = components['schemas']
 
@@ -47,6 +47,25 @@ export type SeatInfo = Schemas['SeatInfo']
 export type GameEvent = Schemas['EventOut']
 export type DmMode = CreateSessionRequest['dm_mode']
 export type Improvisation = CreateSessionRequest['improvisation']
+
+// --- Предметы (подэтап 7): каталог сессии, действия игрока, REST автора ---
+export type Item = Schemas['Item']
+export type ItemEffect = Schemas['Effect']
+export type ItemKind = NonNullable<Item['kind']>
+export type ItemSlotId = ItemSlot
+export type ItemConsumeOn = NonNullable<Item['consume_on']>
+export type ItemConsumableEffect = NonNullable<Item['consumable_effect']>
+export type ItemCatalog = Schemas['ItemCatalogResponse']
+export type ItemActionRequest = Schemas['ItemActionRequest']
+export type ItemActionResponse = Schemas['ItemActionResponse']
+export type ItemIconInfo = Schemas['ItemIconInfo']
+export type ItemIconsResponse = Schemas['ItemIconsResponse']
+export type AuthorScenario = Schemas['AuthorScenario']
+export type AuthorItemsResponse = Schemas['AuthorItemsResponse']
+export type ItemUpdateRequest = Schemas['ItemUpdateRequest']
+export type ItemUpdateResponse = Schemas['ItemUpdateResponse']
+export type IssueInfo = Schemas['IssueInfo']
+export type EncounterInfo = Schemas['EncounterInfo']
 
 // UI-only helpers (not part of the server contract).
 export type Locale = 'ru' | 'en'
@@ -96,9 +115,22 @@ export interface SessionStateView {
   visited: string[]
   revealed: string[]
   attitudes: Record<string, string>
-  inventory: Record<string, { item_id: string | null; name: string }[]>
+  inventory: Record<string, {
+    item_id: string | null
+    name: string
+    /** Стек (подэтап 4b); отсутствует в старых снапшотах — считаем 1. */
+    quantity?: number
+    /** Заточка +N (подэтап 5); отсутствует в старых снапшотах — считаем 0. */
+    enhancement?: number
+  }[]>
+  /** Надетое: actor_id -> {item_id: slot} (подэтап 7); нет в старых снапшотах. */
+  equipment?: Record<string, Record<string, ItemSlot>>
   facts: string[]
   started_encounters: string[]
+  /** Текущий encounter и его итоги для одноразового сценарного отдыха. */
+  active_encounter_id?: string | null
+  encounter_outcomes?: Record<string, string | null>
+  used_rests?: string[]
   summary: string
   summary_through_turn: number
   turn: number

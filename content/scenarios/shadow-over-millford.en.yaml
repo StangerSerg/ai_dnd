@@ -5,6 +5,7 @@ scenario:
   language: en
   ruleset: dnd5e-srd@1
   sheet_template: srd5-basic@1
+  class_pack: fantasy-core
   start_scene: tavern
   synopsis: >-
     People are vanishing from the village of Millford. The Cult of the Serpent takes them:

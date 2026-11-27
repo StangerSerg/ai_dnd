@@ -2,13 +2,13 @@
 {% if scene.read_aloud %}
 Read-aloud text: {{ scene.read_aloud }}
 {% endif %}
-{% if scene.dm_notes %}
+{% if private_context and scene.dm_notes %}
 DM notes: {{ scene.dm_notes }}
 {% endif %}
 {% if npcs %}
 NPCs here:
 {% for npc in npcs %}
-- {{ npc.name }} (id: {{ npc.id }}), attitude: {{ npc.attitude }}{% if npc.description %}. Looks: {{ npc.description }}{% endif %}{% if npc.personality %}. Personality: {{ npc.personality }}{% endif %}{% if npc.secrets %}. Secrets (DM only): {{ npc.secrets | join(" ") }}{% endif %}
+- {{ npc.name }} (id: {{ npc.id }}), attitude: {{ npc.attitude }}{% if npc.description %}. Looks: {{ npc.description }}{% endif %}{% if private_context and npc.personality %}. Personality: {{ npc.personality }}{% endif %}{% if private_context and npc.secrets %}. Secrets (DM only): {{ npc.secrets | join(" ") }}{% endif %}
 
 {% endfor %}
 {% endif %}
@@ -19,7 +19,7 @@ Dead here (corpses — NEVER describe as alive, speaking or acting):
 
 {% endfor %}
 {% endif %}
-{% if checks %}
+{% if private_context and checks %}
 Prepared checks (use as scene_check):
 {% for check in checks %}
 - {{ check.id }}: {{ check.kind }} {{ check.subject }}{% if check.dc %} DC {{ check.dc }}{% endif %}{% if check.when %} — when: {{ check.when }}{% endif %}{% if check.reveals %} — on success reveals: {{ check.reveals | join(", ") }}{% endif %}
@@ -32,7 +32,7 @@ Clues, items and handouts here:
 - {{ entity.id }} [{{ entity.status }}]: {{ entity.text }}
 {% endfor %}
 {% endif %}
-{% if encounters %}
+{% if private_context and encounters %}
 Encounters here:
 {% for encounter in encounters %}
 - {{ encounter.id }}: {{ encounter.title }} — {{ encounter.creatures }}{% if encounter.description %}. {{ encounter.description }}{% endif %}
@@ -44,6 +44,11 @@ Exits (the ONLY reachable locations from this scene; travel is possible only to 
 {% for exit in exits %}
 - {{ exit.id }}: {{ exit.title }}
 {% endfor %}
+{% endif %}
+{% if rest %}
+Authored rest in this scene (private mechanics; use only on a player's request):
+- {{ rest.id }}: {{ rest.name }}; status {{ rest.status }}; restores {{ rest.resources | join(", ") }}; requires recorded party victory in one of {{ rest.after_encounters | join(", ") }}.
+If available, call take_rest with the requesting party member's actor_id and this exact rest_id. A used or locked rest has no effect.
 {% endif %}
 
 # Party status
@@ -58,7 +63,7 @@ Exits (the ONLY reachable locations from this scene; travel is possible only to 
 - {{ line }}
 {% endfor %}
 {% endif %}
-{% if facts %}
+{% if private_context and facts %}
 
 # Your notes
 {% for fact in facts %}

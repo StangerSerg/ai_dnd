@@ -202,7 +202,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Session */
+        /**
+         * Create Session
+         * @description Новый стол: ai-режим — создатель лидер+игрок (character_id обязателен),
+         *     human-режим — создатель занимает dm-место. Публичность и ёмкость — сразу.
+         */
         post: operations["create_session_api_sessions__post"];
         delete?: never;
         options?: never;
@@ -266,7 +270,8 @@ export interface paths {
          * @description Добровольный выход игрока/наблюдателя: своё место удаляется без бана.
          *
          *     Повторная посадка возможна через зал/приглашение (в отличие от кика).
-         *     Хост (dm) встать из-за стола не может — 422 cannot_leave_host.
+         *     Лидер стола (host_id сессии, в ai-режиме — игрок) встать из-за стола не
+         *     может — 422 cannot_leave_host.
          */
         delete: operations["leave_seat_api_sessions__session_id__seat_delete"];
         options?: never;
@@ -330,6 +335,30 @@ export interface paths {
         };
         /** Get Session */
         get: operations["get_session_api_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/{session_id}/item-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Item Catalog
+         * @description Каталог предметов сессии для frontend-куклы (подэтап 7): полные Item.
+         *
+         *     Видимость: dm — все предметы сценария; player/spectator — public, открытые
+         *     (state.revealed) и выданные любому актёру (владение раскрывает предмет).
+         *     Механика выключена или версия не закреплена — пустой каталог.
+         */
+        get: operations["get_item_catalog_api_sessions__session_id__item_catalog_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -426,13 +455,38 @@ export interface paths {
         put?: never;
         /**
          * Transfer Host
-         * @description Хост передаёт ведение игроку и встаёт из-за стола: своё место он теряет.
+         * @description Лидер передаёт лидерство игроку.
          *
-         *     Цель — player-место этой сессии; dm-место переходит новому хосту,
-         *     player-место цели удаляется без бана. Комната узнаёт control-сообщением
-         *     ``host_transferred`` (не seat_update: это не кик).
+         *     Цель — player-место этой сессии. Human-режим (есть dm-место, в т.ч. старые
+         *     столы): dm-место переходит новому лидеру, player-место цели удаляется без
+         *     бана. Ai-режим (dm-места нет): host_id переходит к цели, она сохраняет своё
+         *     место и персонажа; dm_seat_id/removed_seat_id — null. Комната узнаёт
+         *     control-сообщением ``host_transferred`` (не seat_update: это не кик).
          */
         post: operations["transfer_host_api_sessions__session_id__transfer_host_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/{session_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive Session
+         * @description Безопасное удаление стола лидером: стол скрывается из списков, запись в БД остаётся.
+         *
+         *     Только для остановленного стола (иначе 409 session_not_stopped); идемпотентно:
+         *     повторный вызов на архивном столе возвращает archived=true.
+         */
+        post: operations["archive_session_api_sessions__session_id__archive_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -602,6 +656,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/{session_id}/item-action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Item Action
+         * @description Предметное действие игрока (подэтап 7): выполняется синхронно под замком комнаты.
+         *
+         *     Без LLM: DmTools + чистый движок, actor_id принудительно из места игрока.
+         *     События коммитятся тем же путём, что боевые действия (журнал + broadcast).
+         */
+        post: operations["post_item_action_api_sessions__session_id__item_action_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/characters/classes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Scenario Classes
+         * @description Классы публичной или собственной версии; чужие приватные id не раскрываем.
+         */
+        get: operations["scenario_classes_api_characters_classes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/characters": {
         parameters: {
             query?: never;
@@ -654,6 +751,74 @@ export interface paths {
         /** List Scenarios */
         get: operations["list_scenarios_api_scenarios_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/item-icons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Item Icons */
+        get: operations["list_item_icons_api_item_icons_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/author/scenarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Author Scenarios */
+        get: operations["list_author_scenarios_api_author_scenarios_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/author/scenarios/{scenario_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Author Items */
+        get: operations["get_author_items_api_author_scenarios__scenario_id__items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/author/scenarios/{scenario_id}/items/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Author Item */
+        put: operations["update_author_item_api_author_scenarios__scenario_id__items__item_id__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1172,6 +1337,17 @@ export interface components {
             /** Items */
             items: components["schemas"]["AnalyticsDay"][];
         };
+        /**
+         * ArchiveResponse
+         * @description Безопасное удаление стола лидером: стол скрыт из списков, запись в БД остаётся.
+         */
+        ArchiveResponse: {
+            /**
+             * Archived
+             * @default true
+             */
+            archived: boolean;
+        };
         /** AuditEntry */
         AuditEntry: {
             /**
@@ -1203,6 +1379,38 @@ export interface components {
             entries: components["schemas"]["AuditEntry"][];
             /** Total */
             total: number;
+        };
+        /** AuthorItemsResponse */
+        AuthorItemsResponse: {
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /** Items */
+            items: components["schemas"]["Item"][];
+            /** Encounters */
+            encounters: components["schemas"]["EncounterInfo"][];
+            /** Issues */
+            issues: components["schemas"]["IssueInfo"][];
+        };
+        /** AuthorScenario */
+        AuthorScenario: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Slug */
+            slug: string;
+            /** Language */
+            language: string;
+            /** Title */
+            title: string;
+            /** Visibility */
+            visibility: string;
+            /** Current Version Id */
+            current_version_id: string | null;
         };
         /** BalanceResponse */
         BalanceResponse: {
@@ -1242,6 +1450,8 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /** Class Id */
+            class_id?: string | null;
         };
         /** CharacterSheetResponse */
         CharacterSheetResponse: {
@@ -1417,11 +1627,8 @@ export interface components {
              * Format: uuid
              */
             scenario_version_id: string;
-            /**
-             * Char Class
-             * @enum {string}
-             */
-            char_class: "fighter" | "rogue" | "cleric" | "ranger";
+            /** Char Class */
+            char_class: string;
             /** Race */
             race?: string | null;
             /** Portrait */
@@ -1451,6 +1658,21 @@ export interface components {
              * @enum {string}
              */
             improvisation: "strict" | "moderate" | "free";
+            /**
+             * Tone
+             * @default default
+             * @enum {string}
+             */
+            tone: "default" | "humor" | "sarcasm" | "cynical" | "noir" | "heroic" | "poetic" | "mysterious" | "horror" | "clinical" | "philosophical" | "brutal" | "caring" | "chaotic" | "inverted_sage" | "solemn_guide" | "fireside_bard" | "ancient_oracle" | "pirate_captain" | "absurd_host" | "drill_sergeant" | "gothic_narrator" | "trickster" | "honor_bound";
+            /** Character Id */
+            character_id?: string | null;
+            /**
+             * Recruiting
+             * @default false
+             */
+            recruiting: boolean;
+            /** Seats Total */
+            seats_total?: number | null;
         };
         /** CreateSessionResponse */
         CreateSessionResponse: {
@@ -1461,6 +1683,12 @@ export interface components {
             id: string;
             /** Invite Token */
             invite_token: string;
+            /** Recruiting */
+            recruiting: boolean;
+            /** Seats Total */
+            seats_total?: number | null;
+            /** Role */
+            role: string;
         };
         /** CsrfResponse */
         CsrfResponse: {
@@ -1474,7 +1702,7 @@ export interface components {
         CureWoundsCapability: {
             /**
              * Spell Id
-             * @enum {string}
+             * @constant
              */
             spell_id: "cure_wounds";
             /** Prepared */
@@ -1484,6 +1712,11 @@ export interface components {
              * @default false
              */
             disciple_of_life: boolean;
+            /**
+             * Consumes Slot
+             * @default true
+             */
+            consumes_slot: boolean;
             /** Spellcasting Modifier */
             spellcasting_modifier: number;
         };
@@ -1504,6 +1737,59 @@ export interface components {
             cached_input_tokens: number;
             /** Output Tokens */
             output_tokens: number;
+        };
+        /**
+         * Effect
+         * @description Влияние состояния на броски: преимущество или помеха, поправка, провал без броска.
+         */
+        Effect: {
+            applies_to: components["schemas"]["EffectTarget"];
+            /**
+             * Only
+             * @default []
+             */
+            only: string[];
+            /** Mode */
+            mode?: ("advantage" | "disadvantage") | null;
+            /**
+             * Bonus
+             * @default 0
+             */
+            bonus: number;
+            /**
+             * Auto Fail
+             * @default false
+             */
+            auto_fail: boolean;
+        };
+        /**
+         * EffectTarget
+         * @description На какие броски влияет состояние.
+         * @enum {string}
+         */
+        EffectTarget: "checks" | "saves" | "attacks" | "attacks_against";
+        /** EncounterGroup */
+        EncounterGroup: {
+            /** Statblock */
+            statblock: string;
+            /**
+             * Count
+             * @default 1
+             */
+            count: number;
+            /** Name */
+            name?: string | null;
+        };
+        /** EncounterInfo */
+        EncounterInfo: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Creatures */
+            creatures: components["schemas"]["EncounterGroup"][];
+            /** Loot */
+            loot: components["schemas"]["LootEntry"][];
         };
         /** EventOut */
         EventOut: {
@@ -1560,6 +1846,246 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** IconName */
+        IconName: {
+            /** Ru */
+            ru: string;
+            /** En */
+            en: string;
+        };
+        /** IssueInfo */
+        IssueInfo: {
+            /** Code */
+            code: string;
+            /** Path */
+            path: string;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * Item
+         * @description Предмет сценария. Механика опциональна: без неё предмет остаётся нарративным.
+         */
+        Item: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Visibility
+             * @default public
+             * @enum {string}
+             */
+            visibility: "public" | "dm";
+            /** Kind */
+            kind?: ("weapon" | "armor" | "wearable" | "consumable" | "other") | null;
+            /** Slot */
+            slot?: ("weapon" | "armor" | "amulet" | "ring" | "cloak" | "other") | null;
+            /**
+             * Quantity
+             * @default 1
+             */
+            quantity: number;
+            /**
+             * Modifiers
+             * @default []
+             */
+            modifiers: components["schemas"]["Effect"][];
+            /**
+             * Ac Bonus
+             * @default 0
+             */
+            ac_bonus: number;
+            /**
+             * Damage Bonus
+             * @default 0
+             */
+            damage_bonus: number;
+            /** Damage Type */
+            damage_type?: string | null;
+            /**
+             * Enhancement
+             * @default 0
+             */
+            enhancement: number;
+            /** Consumable Effect */
+            consumable_effect?: (components["schemas"]["ItemHeal"] | components["schemas"]["ItemBuff"] | components["schemas"]["ItemSpell"]) | null;
+            /** Consume On */
+            consume_on?: ("use" | "attack" | "throw" | "spend") | null;
+            /** Ammo */
+            ammo?: string | null;
+            attack?: components["schemas"]["ItemAttack"] | null;
+            /** Repair Hp */
+            repair_hp?: number | null;
+            /** Icon */
+            icon?: string | null;
+        };
+        /**
+         * ItemActionRequest
+         * @description Предметное действие игрока (подэтап 7). actor_id берётся из места, не из тела.
+         */
+        ItemActionRequest: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "equip" | "unequip" | "use" | "spend";
+            /** Item Id */
+            item_id: string;
+            /**
+             * Quantity
+             * @default 1
+             */
+            quantity: number;
+            /** Target Id */
+            target_id?: string | null;
+        };
+        /** ItemActionResponse */
+        ItemActionResponse: {
+            /** Seq */
+            seq: number;
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * ItemAttack
+         * @description Attack made available by an equipped scenario weapon.
+         */
+        ItemAttack: {
+            /** Name */
+            name: string;
+            /** Bonus */
+            bonus: number;
+            /** Damage */
+            damage?: string | null;
+            /** Damage Type */
+            damage_type?: string | null;
+        };
+        /**
+         * ItemBuff
+         * @description Временные модификаторы. Длительность в раундах; None — пока не снимет ведущий.
+         */
+        ItemBuff: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "buff";
+            /** Effects */
+            effects: components["schemas"]["Effect"][];
+            /** Rounds */
+            rounds?: number | null;
+        };
+        /**
+         * ItemCatalogResponse
+         * @description Каталог предметов закреплённой версии сценария (подэтап 7, frontend-кукла).
+         *
+         *     Полные определения Item (slot/icon/kind/consume_on/consumable_effect/attack/
+         *     repair_hp), отфильтрованные по видимости места. ``items_enabled=False`` —
+         *     механика выключена или версия не закреплена, список всегда пуст.
+         */
+        ItemCatalogResponse: {
+            /** Items Enabled */
+            items_enabled: boolean;
+            /** Items */
+            items: components["schemas"]["Item"][];
+        };
+        /**
+         * ItemHeal
+         * @description Лечение при использовании: формула как в HealAction.amount («2d4+2»).
+         */
+        ItemHeal: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "heal";
+            /** Amount */
+            amount: string;
+        };
+        /** ItemIconInfo */
+        ItemIconInfo: {
+            /** Id */
+            id: string;
+            name: components["schemas"]["IconName"];
+        };
+        /** ItemIconsResponse */
+        ItemIconsResponse: {
+            /** Icons */
+            icons: components["schemas"]["ItemIconInfo"][];
+            /** Attribution */
+            attribution: string;
+        };
+        /**
+         * ItemSpell
+         * @description Свиток. Реестра заклинаний в проекте нет, поэтому ссылка нарративная:
+         *     название заклинания текстом, каст разбирает ведущий (подэтап 4).
+         */
+        ItemSpell: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "spell";
+            /** Spell */
+            spell: string;
+        };
+        /**
+         * ItemUpdateRequest
+         * @description Правка предмета: пропущенные поля сохраняют значение, явный null сбрасывает.
+         */
+        ItemUpdateRequest: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Visibility */
+            visibility?: ("public" | "dm") | null;
+            /** Kind */
+            kind?: ("weapon" | "armor" | "wearable" | "consumable" | "other") | null;
+            /** Slot */
+            slot?: ("weapon" | "armor" | "amulet" | "ring" | "cloak" | "other") | null;
+            /** Quantity */
+            quantity?: number | null;
+            /** Modifiers */
+            modifiers?: components["schemas"]["Effect"][] | null;
+            /** Ac Bonus */
+            ac_bonus?: number | null;
+            /** Damage Bonus */
+            damage_bonus?: number | null;
+            /** Damage Type */
+            damage_type?: string | null;
+            /** Enhancement */
+            enhancement?: number | null;
+            /** Consumable Effect */
+            consumable_effect?: (components["schemas"]["ItemHeal"] | components["schemas"]["ItemBuff"] | components["schemas"]["ItemSpell"]) | null;
+            /** Consume On */
+            consume_on?: ("use" | "attack" | "throw" | "spend") | null;
+            /** Ammo */
+            ammo?: string | null;
+            attack?: components["schemas"]["ItemAttack"] | null;
+            /** Repair Hp */
+            repair_hp?: number | null;
+            /** Icon */
+            icon?: string | null;
+        };
+        /** ItemUpdateResponse */
+        ItemUpdateResponse: {
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            item: components["schemas"]["Item"];
+            /** Issues */
+            issues: components["schemas"]["IssueInfo"][];
         };
         /** JoinRequest */
         JoinRequest: {
@@ -1678,6 +2204,24 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * LootEntry
+         * @description Запись таблицы дропа энкаунтера: сценарный предмет, количество и шанс.
+         */
+        LootEntry: {
+            /** Item Id */
+            item_id: string;
+            /**
+             * Quantity
+             * @default 1
+             */
+            quantity: number;
+            /**
+             * Chance
+             * @default 1
+             */
+            chance: number;
+        };
         /** MeResponse */
         MeResponse: {
             /**
@@ -1695,7 +2239,7 @@ export interface components {
             locale: string;
             /** Email Verified */
             email_verified: boolean;
-            ui_settings: components["schemas"]["UiSettings"];
+            ui_settings?: components["schemas"]["UiSettings"];
         };
         /** MessageRequest */
         MessageRequest: {
@@ -1968,6 +2512,11 @@ export interface components {
             };
             /** Seats */
             seats: components["schemas"]["SeatDetail"][];
+            /**
+             * Archived
+             * @default false
+             */
+            archived: boolean;
         };
         /** SessionItem */
         SessionItem: {
@@ -1995,6 +2544,11 @@ export interface components {
             created_at: string;
             /** Host Name */
             host_name: string | null;
+            /**
+             * Archived
+             * @default false
+             */
+            archived: boolean;
         };
         /**
          * SessionListItem
@@ -2031,6 +2585,8 @@ export interface components {
             host_name?: string | null;
             /** Invite Token */
             invite_token?: string | null;
+            /** Is Host */
+            is_host: boolean;
         };
         /**
          * SessionPreviewResponse
@@ -2101,6 +2657,13 @@ export interface components {
              * @default 0
              */
             spectators: number;
+            /** Is Host */
+            is_host: boolean;
+            /**
+             * Items Enabled
+             * @default true
+             */
+            items_enabled: boolean;
         };
         /** SessionsResponse */
         SessionsResponse: {
@@ -2162,21 +2725,15 @@ export interface components {
         };
         /** TransferHostResponse */
         TransferHostResponse: {
-            /**
-             * Dm Seat Id
-             * Format: uuid
-             */
-            dm_seat_id: string;
+            /** Dm Seat Id */
+            dm_seat_id?: string | null;
             /**
              * New Host User Id
              * Format: uuid
              */
             new_host_user_id: string;
-            /**
-             * Removed Seat Id
-             * Format: uuid
-             */
-            removed_seat_id: string;
+            /** Removed Seat Id */
+            removed_seat_id?: string | null;
         };
         /** TurnTriggerResponse */
         TurnTriggerResponse: {
@@ -2922,6 +3479,37 @@ export interface operations {
             };
         };
     };
+    get_item_catalog_api_sessions__session_id__item_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemCatalogResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_events_api_sessions__session_id__events_get: {
         parameters: {
             query?: {
@@ -3082,6 +3670,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TransferHostResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_session_api_sessions__session_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchiveResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3393,6 +4012,72 @@ export interface operations {
             };
         };
     };
+    post_item_action_api_sessions__session_id__item_action_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemActionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scenario_classes_api_characters_classes_get: {
+        parameters: {
+            query: {
+                scenario_version_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_characters_api_characters_get: {
         parameters: {
             query?: never;
@@ -3528,6 +4213,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScenarioListItem"][];
+                };
+            };
+        };
+    };
+    list_item_icons_api_item_icons_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemIconsResponse"];
+                };
+            };
+        };
+    };
+    list_author_scenarios_api_author_scenarios_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorScenario"][];
+                };
+            };
+        };
+    };
+    get_author_items_api_author_scenarios__scenario_id__items_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scenario_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorItemsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_author_item_api_author_scenarios__scenario_id__items__item_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scenario_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemUpdateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -1,0 +1,6 @@
+id: worms-ship
+name: Корабли Десперадос
+classes:
+  ship_striker: {skills: [protect], label: Штурмовик}
+  ship_scout: {skills: [stealth], label: Разведчик}
+  ship_tender: {skills: [], label: Тендер}

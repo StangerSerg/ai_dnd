@@ -70,6 +70,8 @@ class SheetAttack(BaseModel):
     # Запись урона («1d8+3») и тип урона. None — не указано.
     damage: str | None = None
     damage_type: str | None = None
+    # Id ресурса актёра, тратимого за попытку, включая промах. None — атака без расхода.
+    ammo_resource: str | None = None
 
 
 class ComputedSheet(BaseModel):
@@ -210,12 +212,16 @@ class CompiledTemplate:
                 issues.append(SheetIssue("not_integer", path, {"value": bonus}))
                 continue
             damage_type = None if binding.damage_type is None else item[binding.damage_type]
+            ammo_resource = (
+                None if binding.ammo_resource is None else item.get(binding.ammo_resource)
+            )
             attacks.append(
                 SheetAttack(
                     name=item[binding.name],
                     bonus=bonus,
                     damage=item[binding.damage] or None,
                     damage_type=damage_type or None,
+                    ammo_resource=ammo_resource or None,
                 )
             )
         return tuple(attacks)

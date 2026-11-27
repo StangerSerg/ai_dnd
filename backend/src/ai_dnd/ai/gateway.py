@@ -21,7 +21,8 @@ from time import perf_counter
 
 from pydantic import BaseModel, ValidationError
 
-from ai_dnd.ai.config import LLMConfig, TaskConfig, load_llm_config
+from ai_dnd.ai.budget import check_budget
+from ai_dnd.ai.config import BudgetConfig, LLMConfig, TaskConfig, load_llm_config
 from ai_dnd.ai.provider import (
     CompletionRequest,
     LLMError,
@@ -97,6 +98,12 @@ class LLMGateway:
         retries = self._config.retries
         started = perf_counter()
 
+        try:
+            check_budget(request, self._budget_for(settings))
+        except LLMError as error:
+            await self._record_failure(task, settings, provider, started, error, context)
+            raise
+
         attempt = 0
         while True:
             attempt += 1
@@ -113,7 +120,10 @@ class LLMGateway:
                 raise
 
         response = self._response(task, settings, provider, result, started)
-        await self._record_success(response, context)
+        if response.finish_reason == "length":
+            await self._record_response(response, context, error="output_truncated")
+            raise LLMError("output_truncated", confirmed_cost=response.cost)
+        await self._record_response(response, context)
         return response
 
     async def stream(
@@ -125,11 +135,21 @@ class LLMGateway:
         tool_choice: ToolChoice | None = None,
         context: CallContext | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        """Отдавать текст по мере генерации; последним событием приходит полный ответ."""
+        """Отдавать текст; при успешном завершении выдать StreamEnd.
+
+        При length после уже показанных TextDelta бросает output_truncated без StreamEnd.
+        Потребитель должен обработать исключение и не считать показанный текст итогом.
+        """
         settings, provider = self._route(task)
         request = _request(settings, messages, tools, tool_choice, json_output=False)
         retries = self._config.retries
         started = perf_counter()
+
+        try:
+            check_budget(request, self._budget_for(settings))
+        except LLMError as error:
+            await self._record_failure(task, settings, provider, started, error, context)
+            raise
 
         attempt = 0
         while True:
@@ -142,7 +162,10 @@ class LLMGateway:
                         yield TextDelta(text=item)
                         continue
                     response = self._response(task, settings, provider, item, started)
-                    await self._record_success(response, context)
+                    if response.finish_reason == "length":
+                        await self._record_response(response, context, error="output_truncated")
+                        raise LLMError("output_truncated", confirmed_cost=response.cost)
+                    await self._record_response(response, context)
                     yield StreamEnd(response=response)
                     return
                 raise LLMError("empty_stream")
@@ -154,7 +177,8 @@ class LLMGateway:
                     raise
                 await self._sleep(retries.backoff_seconds * 2 ** (attempt - 1))
             except LLMError as error:
-                await self._record_failure(task, settings, provider, started, error, context)
+                if error.confirmed_cost is None:
+                    await self._record_failure(task, settings, provider, started, error, context)
                 raise
 
     async def structured[T: BaseModel](
@@ -175,7 +199,13 @@ class LLMGateway:
         responses: list[LLMResponse] = []
         problem = ""
         for _ in range(self._config.retries.validation_attempts + 1):
-            response = await self.complete(task, history, json_output=True, context=context)
+            try:
+                response = await self.complete(task, history, json_output=True, context=context)
+            except LLMError as error:
+                paid = sum((item.cost for item in responses), Decimal(0))
+                if paid or error.confirmed_cost is not None:
+                    error.confirmed_cost = paid + (error.confirmed_cost or Decimal(0))
+                raise
             responses.append(response)
             try:
                 value = schema.model_validate_json(response.text)
@@ -192,9 +222,18 @@ class LLMGateway:
                 ]
                 continue
             return Structured(value=value, responses=tuple(responses))
-        raise LLMError("invalid_structured_output", problem)
+        raise LLMError(
+            "invalid_structured_output",
+            problem,
+            confirmed_cost=sum((item.cost for item in responses), Decimal(0)),
+        )
 
     # --- Внутреннее ---
+
+    def _budget_for(self, task: TaskConfig) -> BudgetConfig:
+        if task.budget_window_tokens is None:
+            return self._config.budget
+        return self._config.budget.model_copy(update={"window_tokens": task.budget_window_tokens})
 
     def _route(self, task: str) -> tuple[TaskConfig, LLMProvider]:
         settings = self._config.tasks.get(task)
@@ -234,7 +273,9 @@ class LLMGateway:
             latency_ms=_elapsed_ms(started),
         )
 
-    async def _record_success(self, response: LLMResponse, context: CallContext | None) -> None:
+    async def _record_response(
+        self, response: LLMResponse, context: CallContext | None, *, error: str | None = None
+    ) -> None:
         if self._recorder is None:
             return
         await self._recorder.record(
@@ -245,6 +286,8 @@ class LLMGateway:
                 usage=response.usage,
                 cost=response.cost,
                 latency_ms=response.latency_ms,
+                status="error" if error else "ok",
+                error=error,
                 context=context or CallContext(),
             )
         )

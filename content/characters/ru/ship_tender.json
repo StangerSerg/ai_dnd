@@ -26,7 +26,7 @@
     "spares": {"current": 8, "max": 8},
     "attacks": [
       {"name": "Лазерная установка Л-2", "bonus": 3, "damage": "1d6+4", "damage_type": "laser", "notes": "основной калибр, безлимитный"},
-      {"name": "Ракетная установка Р-40", "bonus": 3, "damage": "2d6", "damage_type": "missile", "notes": "расходует ракеты"}
+      {"name": "Ракетная установка Р-40", "bonus": 3, "damage": "2d6", "damage_type": "missile", "ammo_resource": "missiles", "notes": "расходует ракеты"}
     ],
     "cargo": [
       {"name": "Запчасти", "qty": 6, "notes": "общеколониальный резерв, вес 6 тонн"},

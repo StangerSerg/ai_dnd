@@ -44,8 +44,8 @@ state.rules (без GameMaster/LLM); ``POST /{id}/combat-actions`` валиди�
 """
 
 import uuid
-from collections.abc import Sequence
-from typing import Annotated, Any, cast
+from collections.abc import Mapping, Sequence
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -58,17 +58,37 @@ from ai_dnd.ai.config import LLMConfig
 from ai_dnd.ai.gateway import LLMGateway, build_gateway
 from ai_dnd.ai.provider import LLMError
 from ai_dnd.ai.recorder import CallContext, CompositeRecorder, DbRecorder, MemoryRecorder
-from ai_dnd.ai.schemas import LLMResponse, Message, StreamEnd, TextDelta, ToolChoice, ToolSpec
+from ai_dnd.ai.schemas import (
+    LLMResponse,
+    Message,
+    StreamEnd,
+    TextDelta,
+    ToolCall,
+    ToolChoice,
+    ToolSpec,
+)
 from ai_dnd.billing.errors import BillingStop
 from ai_dnd.billing.guard import BillingGuard
 from ai_dnd.billing.ledger import CreditLedger
 from ai_dnd.billing.limits import BillingLimits
-from ai_dnd.config import Settings
+from ai_dnd.config import Settings, get_settings
 from ai_dnd.game.events import Narrated, PlayerActed
+from ai_dnd.game.history import load_history_batch, load_recent_history
 from ai_dnd.game.journal import DbJournal
-from ai_dnd.game.master import GameMaster, PlayerInput
+from ai_dnd.game.master import (
+    HISTORY_BACKLOG_LIMIT,
+    HISTORY_TURNS,
+    GameMaster,
+    MemoryBacklogError,
+    PlayerInput,
+    SummaryCommitError,
+    SummaryGenerationError,
+    TurnLockLostError,
+)
+from ai_dnd.game.memory import SUMMARY_EVERY
 from ai_dnd.game.models import GameEventRow, GameSessionRow
-from ai_dnd.game.session import SessionSetup, SessionState, apply_events
+from ai_dnd.game.session import SessionSetup, SessionState, affordable_rules, apply_events
+from ai_dnd.game.tools import DmTools, item_mechanics
 from ai_dnd.rag.embeddings import Embedder
 from ai_dnd.rag.search import LoreSearcher
 from ai_dnd.realtime import service
@@ -85,15 +105,14 @@ from ai_dnd.rules.actions import (
     ProtectAction,
 )
 from ai_dnd.rules.combat import incapacitated_by
-from ai_dnd.rules.engine import RulesEngine
+from ai_dnd.rules.engine import ItemMechanics, RulesEngine
 from ai_dnd.rules.errors import ActionError
 from ai_dnd.rules.rng import SystemRng
 from ai_dnd.rules.ruleset import Ruleset
 from ai_dnd.rules.state import GameState
-from ai_dnd.rules.tactics import choose_action
 from ai_dnd.rules.visibility import for_player
 from ai_dnd.rulesets.models import RulesetRow
-from ai_dnd.scenarios.store import load_game_content_from_db
+from ai_dnd.scenarios.store import load_game_content_from_db, version_items_enabled
 
 Sessions = async_sessionmaker[AsyncSession]
 
@@ -177,10 +196,22 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) 
 return 0
 """
 
+_EXTEND_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], ARGV[2]) end
+return 0
+"""
+
 
 async def _acquire_lock(redis: Redis, session_id: uuid.UUID, token: str) -> bool:
     ok = await redis.set(lock_key(session_id), token, nx=True, px=get_turn_settings().turn_lock_ms)
     return bool(ok)
+
+
+async def _extend_lock(redis: Redis, session_id: uuid.UUID, token: str) -> bool:
+    result = await redis.eval(
+        _EXTEND_LUA, 1, lock_key(session_id), token, get_turn_settings().turn_lock_ms
+    )
+    return bool(result)
 
 
 async def _release_lock(redis: Redis, session_id: uuid.UUID, token: str) -> None:
@@ -316,6 +347,48 @@ _LLM_ERROR_TEXT = {
     "en": "The DM could not answer. Send the actions again — the game continues.",
 }
 
+_TYPED_LLM_ERROR_TEXT = {
+    "output_truncated": {
+        "ru": (
+            "Описание ведущего оборвалось. Уже выполненные действия сохранены; "
+            "не повторяйте их. Продолжите игру с учётом текущего состояния."
+        ),
+        "en": (
+            "The DM's description was cut short. Completed actions were saved; "
+            "do not repeat them. Continue from the current state."
+        ),
+    },
+    "context_budget_exceeded": {
+        "ru": (
+            "Контекст игры превысил допустимый объём. Уже выполненные действия сохранены; "
+            "не повторяйте их. Для продолжения нужно уменьшить объём контекста игры."
+        ),
+        "en": (
+            "The session context exceeded its limit. Completed actions were saved; "
+            "do not repeat them. The game context must be reduced before play can continue."
+        ),
+    },
+}
+
+_MEMORY_BACKLOG_TEXT = {
+    "ru": (
+        "Память ведущего временно недоступна. Новый ход не выполнен; "
+        "повторите своё действие позднее."
+    ),
+    "en": (
+        "The DM's memory is temporarily unavailable. The new turn was not played; "
+        "try your action again later."
+    ),
+}
+
+
+def _llm_error_text(error: LLMError, language: str) -> str:
+    typed = _TYPED_LLM_ERROR_TEXT.get(error.code)
+    if typed is not None:
+        return typed.get(language, typed["en"])
+    return _LLM_ERROR_TEXT.get(language, _LLM_ERROR_TEXT["en"])
+
+
 _COMBAT_TEXT = {
     "ru": (
         "Идёт бой: выбирайте боевые действия на экране игрока. "
@@ -340,6 +413,27 @@ async def _system_narration(
     state = apply_events(SessionState.model_validate(row.state), [event])
     journal = BroadcastJournal(DbJournal(sessions, session_id), redis, sessions)
     await journal.append([event], state)
+
+
+async def _memory_backlog_notice(
+    sessions: Sessions, redis: Redis, session_id: uuid.UUID, language: str, token: str
+) -> None:
+    if not await _extend_lock(redis, session_id, token):
+        return
+    text = _MEMORY_BACKLOG_TEXT.get(language, _MEMORY_BACKLOG_TEXT["en"])
+    async with sessions() as db:
+        previous = await db.scalar(
+            select(GameEventRow.payload)
+            .where(
+                GameEventRow.session_id == session_id,
+                GameEventRow.type == "Narrated",
+                GameEventRow.visibility == "public",
+            )
+            .order_by(GameEventRow.seq.desc())
+            .limit(1)
+        )
+    if previous is None or previous.get("text") != text:
+        await _system_narration(sessions, redis, session_id, text)
 
 
 # --- Сборка GameMaster как в console._play, плюс биллинг и стриминг ---
@@ -426,8 +520,78 @@ async def _build_master(
         Embedder(settings.embedding_model, settings.embedding_dim),
         row.language,
     )
+    history, start_turn, _ = await load_recent_history(
+        sessions,
+        row,
+        setup,
+        covered=state.summary_through_turn if state.summary.strip() else 0,
+        recent_turns=HISTORY_TURNS,
+        summary_every=SUMMARY_EVERY,
+        backlog_limit=HISTORY_BACKLOG_LIMIT,
+    )
     # Адаптер повторяет публичный API LLMGateway, который использует GameMaster.
-    return GameMaster(content, setup, state, cast(LLMGateway, room), journal, SystemRng(), searcher)
+    return GameMaster(
+        content,
+        setup,
+        state,
+        cast(LLMGateway, room),
+        journal,
+        SystemRng(),
+        searcher,
+        history=history,
+        history_start_turn=start_turn,
+    )
+
+
+async def _prepare_master_history(
+    sessions: Sessions,
+    row: GameSessionRow,
+    master: GameMaster,
+    redis: Redis,
+    token: str,
+) -> None:
+    """Catch up legacy journals in at most two successful summary calls per job."""
+    total = master._history_end_turn
+    target = max(0, total - HISTORY_TURNS)
+    batch_limit = 64
+    successful = 0
+    master.set_lock_guard(lambda: _extend_lock(redis, row.id, token))
+    while successful < 2:
+        cursor = master._summary_cursor
+        if total - cursor <= HISTORY_TURNS + SUMMARY_EVERY - 1:
+            master._memory_prepared_at = total
+            return
+        if not await _extend_lock(redis, row.id, token):
+            raise TurnLockLostError("Turn lock expired during history recovery")
+        size = min(batch_limit, target - cursor)
+        try:
+            turns = await load_history_batch(
+                sessions, row, master.setup, start_turn=cursor, limit=size
+            )
+            await master.summarize_history_batch(turns, cursor + size)
+            if not await _extend_lock(redis, row.id, token):
+                raise TurnLockLostError("Turn lock expired during history recovery")
+        except LLMError as error:
+            if error.code == "context_budget_exceeded" and batch_limit > 1:
+                batch_limit = max(1, batch_limit // 2)
+                continue
+            if total - cursor <= HISTORY_BACKLOG_LIMIT and cursor >= master._history_start_turn:
+                master._memory_prepared_at = total
+                return
+            raise MemoryBacklogError("Unable to summarize legacy history") from error
+        except TurnLockLostError:
+            raise
+        except SummaryCommitError:
+            raise
+        except SummaryGenerationError as error:
+            if total - cursor <= HISTORY_BACKLOG_LIMIT and cursor >= master._history_start_turn:
+                master._memory_prepared_at = total
+                return
+            raise MemoryBacklogError("Unable to summarize legacy history") from error
+        successful += 1
+    if master._summary_cursor < master._history_start_turn or total - master._summary_cursor > 21:
+        raise MemoryBacklogError("Legacy history catch-up needs another job")
+    master._memory_prepared_at = total
 
 
 async def _grant_free(sessions: Sessions, host_id: uuid.UUID | None) -> None:
@@ -468,6 +632,7 @@ async def run_dm_turn(
         master = await _build_master(
             sessions, redis, settings, row, row.scenario_version_id, fake=fake
         )
+        await _prepare_master_history(sessions, row, master, redis, token)
         if master.in_combat:
             await _system_narration(
                 sessions, redis, session_id, _COMBAT_TEXT.get(language, _COMBAT_TEXT["en"])
@@ -486,13 +651,18 @@ async def run_dm_turn(
             # сразу доходит до human-актёра — иначе игрок не может дать команду (G1).
             await _advance_combat(sessions, redis, session_id, master, language)
         return "ok"
+    except SummaryCommitError:
+        return "summary_commit_failed"
+    except TurnLockLostError:
+        return "lock_expired"
+    except MemoryBacklogError:
+        await _memory_backlog_notice(sessions, redis, session_id, language, token)
+        return "memory_backlog_exceeded"
     except BillingStop as stop:
         await _system_narration(sessions, redis, session_id, _stop_text(stop, language))
         return "billing_stop"
-    except LLMError:
-        await _system_narration(
-            sessions, redis, session_id, _LLM_ERROR_TEXT.get(language, _LLM_ERROR_TEXT["en"])
-        )
+    except LLMError as error:
+        await _system_narration(sessions, redis, session_id, _llm_error_text(error, language))
         return "llm_error"
     finally:
         await _release_lock(redis, session_id, token)
@@ -542,10 +712,8 @@ async def run_dm_open(
     except BillingStop as stop:
         await _system_narration(sessions, redis, session_id, _stop_text(stop, language))
         return "billing_stop"
-    except LLMError:
-        await _system_narration(
-            sessions, redis, session_id, _LLM_ERROR_TEXT.get(language, _LLM_ERROR_TEXT["en"])
-        )
+    except LLMError as error:
+        await _system_narration(sessions, redis, session_id, _llm_error_text(error, language))
         return "llm_error"
     finally:
         await _release_lock(redis, session_id, token)
@@ -623,15 +791,23 @@ def _describe_option(action: Action, state: GameState, language: str) -> tuple[s
     return action.type, None
 
 
-async def _engine_for(sessions: Sessions, row: GameSessionRow) -> RulesEngine:
-    """Движок из пиннутого набора правил сессии — без контента сценария и LLM."""
+async def _engine_for(
+    sessions: Sessions,
+    row: GameSessionRow,
+    mechanics: Mapping[str, ItemMechanics] | None = None,
+) -> RulesEngine:
+    """Движок из пиннутого набора правил сессии — без контента сценария и LLM.
+
+    ``mechanics`` — предметная механика сценария (item_mechanics), если вызывающей
+    стороне нужны предметные эффекты; боевые варианты считаются без неё.
+    """
     ruleset_row: RulesetRow | None = None
     if row.ruleset_id is not None:
         async with sessions() as db:
             ruleset_row = await db.get(RulesetRow, row.ruleset_id)
     if ruleset_row is None:
         raise HTTPException(409, "session_without_ruleset")
-    return RulesEngine(Ruleset.model_validate(ruleset_row.data))
+    return RulesEngine(Ruleset.model_validate(ruleset_row.data), mechanics)
 
 
 async def _has_human_player_seat(sessions: Sessions, session_id: uuid.UUID, actor_id: str) -> bool:
@@ -650,8 +826,12 @@ async def _has_human_player_seat(sessions: Sessions, session_id: uuid.UUID, acto
 async def _drain_combat_narration(master: GameMaster) -> None:
     """Рассказ накопленного раунда (стрим chunk-ов уже публикует _RoomGateway)."""
     while master.round_finished:
-        async for _ in master.narrate_combat():
-            pass
+        try:
+            async for _ in master.narrate_combat():
+                pass
+        except BillingStop:
+            if await master.finish_terminal_combat_fallback() is None:
+                raise
 
 
 async def _advance_combat(
@@ -698,9 +878,10 @@ async def _advance_combat(
             continue
         if await _has_human_player_seat(sessions, session_id, current):
             return "waiting_player"
-        # Party-актёр без human-места (спутник под управлением ИИ): тактика движка.
+        # Party-актёр без human-места (спутник под управлением ИИ): тактика движка
+        # среди атак с боеприпасами в остатке.
         try:
-            await master.act(choose_action(master.engine, master.state.rules, current, SystemRng()))
+            await master.act(master.tactics_action(current))
         except ActionError as error:
             await _player_narration(
                 sessions,
@@ -752,6 +933,7 @@ async def run_combat_step(
         master = await _build_master(
             sessions, redis, settings, row, row.scenario_version_id, fake=fake
         )
+        await _prepare_master_history(sessions, row, master, redis, token)
         if not master.is_party(actor_id):
             return "not_party"
         options = master.combat_options(actor_id)
@@ -769,13 +951,18 @@ async def run_combat_step(
             )
             return "action_error"
         return await _advance_combat(sessions, redis, session_id, master, language)
+    except SummaryCommitError:
+        return "summary_commit_failed"
+    except TurnLockLostError:
+        return "lock_expired"
+    except MemoryBacklogError:
+        await _memory_backlog_notice(sessions, redis, session_id, language, token)
+        return "memory_backlog_exceeded"
     except BillingStop as stop:
         await _system_narration(sessions, redis, session_id, _stop_text(stop, language))
         return "billing_stop"
-    except LLMError:
-        await _system_narration(
-            sessions, redis, session_id, _LLM_ERROR_TEXT.get(language, _LLM_ERROR_TEXT["en"])
-        )
+    except LLMError as error:
+        await _system_narration(sessions, redis, session_id, _llm_error_text(error, language))
         return "llm_error"
     finally:
         await _release_lock(redis, session_id, token)
@@ -827,6 +1014,22 @@ class CombatActionRequest(_Schema):
 
 class CombatActionResponse(_Schema):
     accepted: bool = True
+
+
+class ItemActionRequest(_Schema):
+    """Предметное действие игрока (подэтап 7). actor_id берётся из места, не из тела."""
+
+    action: Literal["equip", "unequip", "use", "spend"]
+    item_id: str = Field(min_length=1, max_length=40)
+    # Только для spend: сколько единиц потратить.
+    quantity: int = Field(default=1, ge=1)
+    # Только для spend предмета с repair_hp: кого чинить/лечить.
+    target_id: str | None = None
+
+
+class ItemActionResponse(_Schema):
+    seq: int
+    result: dict[str, Any]
 
 
 async def _human_action(
@@ -929,7 +1132,9 @@ def build_turns_router(get_current_user: GetCurrentUser) -> APIRouter:
         options: list[CombatOptionOut] = []
         if combat is not None:
             engine = await _engine_for(sessions, row)
-            actions = engine.available_actions(state.rules, seat.actor_id)
+            actions = engine.available_actions(
+                affordable_rules(state, seat.actor_id), seat.actor_id
+            )
             for index, action in enumerate(actions):
                 label, target_id = _describe_option(action, state.rules, row.language)
                 options.append(
@@ -971,13 +1176,95 @@ def build_turns_router(get_current_user: GetCurrentUser) -> APIRouter:
             raise HTTPException(409, "turn_in_progress")
         # Индекс валидируется против свежих вариантов; воркер перепроверит под замком.
         engine = await _engine_for(sessions, row)
-        options = engine.available_actions(state.rules, seat.actor_id)
+        options = engine.available_actions(affordable_rules(state, seat.actor_id), seat.actor_id)
         if body.option_index >= len(options):
             raise HTTPException(422, "invalid_option")
         from ai_dnd.tasks import combat_step
 
         await combat_step.kiq(str(session_id), seat.actor_id, body.option_index)
         return CombatActionResponse()
+
+    @router.post("/{session_id}/item-action", response_model=ItemActionResponse)
+    async def post_item_action(
+        session_id: uuid.UUID,
+        body: ItemActionRequest,
+        user: Annotated[CurrentUser, Depends(get_current_user)],
+        resources: Annotated[Resources, Depends(get_resources)],
+    ) -> ItemActionResponse:
+        """Предметное действие игрока (подэтап 7): выполняется синхронно под замком комнаты.
+
+        Без LLM: DmTools + чистый движок, actor_id принудительно из места игрока.
+        События коммитятся тем же путём, что боевые действия (журнал + broadcast).
+        """
+        sessions = resources.db_sessions
+        row, seat = await _session_and_seat(sessions, session_id, user)
+        if row.status != "active":
+            raise HTTPException(409, {"code": "session_stopped"})
+        if seat.role != "player":
+            raise HTTPException(403, "players_only")
+        state = SessionState.model_validate(row.state)
+        actor = state.rules.actors.get(seat.actor_id)
+        if actor is not None and (
+            actor.dead
+            or (actor.hp is not None and actor.hp.current <= 0)
+            or incapacitated_by((await _engine_for(sessions, row)).ruleset, actor) is not None
+        ):
+            raise HTTPException(403, {"code": "incapacitated"})
+        if row.scenario_version_id is None:
+            raise HTTPException(409, {"code": "no_scenario"})
+        if not await version_items_enabled(sessions, row.scenario_version_id):
+            raise HTTPException(409, {"code": "items_disabled"})
+        if state.rules.combat is not None:
+            raise HTTPException(409, {"code": "combat_active"})
+        redis = resources.redis
+        token = uuid.uuid4().hex
+        if not await _acquire_lock(redis, session_id, token):
+            raise HTTPException(409, "turn_in_progress")
+        try:
+            # Под замком — свежее состояние: ход мог начаться или закончиться боем.
+            async with sessions() as db:
+                fresh = await db.get(GameSessionRow, session_id)
+            if fresh is None:
+                raise HTTPException(404, "session_not_found")
+            if fresh.status != "active":
+                raise HTTPException(409, {"code": "session_stopped"})
+            state = SessionState.model_validate(fresh.state)
+            if state.rules.combat is not None:
+                raise HTTPException(409, {"code": "combat_active"})
+            version_id = row.scenario_version_id
+            content = await load_game_content_from_db(
+                sessions, version_id, get_settings().content_dir
+            )
+            engine = await _engine_for(sessions, fresh, item_mechanics(content.scenario))
+            tools = DmTools(content, SessionSetup.model_validate(fresh.setup), engine, SystemRng())
+            arguments: dict[str, Any] = {"actor_id": seat.actor_id, "item_id": body.item_id}
+            if body.action == "spend":
+                arguments["quantity"] = body.quantity
+                if body.target_id is not None:
+                    arguments["target_id"] = body.target_id
+            tool_name = {
+                "equip": "equip_item",
+                "unequip": "unequip_item",
+                "use": "use_item",
+                "spend": "spend_item",
+            }[body.action]
+            outcome = tools.execute(
+                state, ToolCall(id=uuid.uuid4().hex, name=tool_name, arguments=arguments)
+            )
+            if outcome.failed:
+                details = dict(outcome.result)
+                code = str(details.pop("error"))
+                raise HTTPException(422, {"code": code, **details})
+            new_state = apply_events(state, outcome.events)
+            journal = BroadcastJournal(DbJournal(sessions, session_id), redis, sessions)
+            await journal.append(outcome.events, new_state)
+            async with sessions() as db:
+                last_seq = await db.scalar(
+                    select(GameSessionRow.last_seq).where(GameSessionRow.id == session_id)
+                )
+            return ItemActionResponse(seq=int(last_seq or 0), result=outcome.result)
+        finally:
+            await _release_lock(redis, session_id, token)
 
     return router
 

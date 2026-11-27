@@ -19,6 +19,7 @@ import { CombatPanel } from '@/game/combat-panel'
 import { DefeatDialog } from '@/game/defeat-dialog'
 import { EventFeed } from '@/game/event-feed'
 import { HostLeaveDialog, hostLeaveErrorText, type HostLeaveTarget } from '@/game/host-leave-dialog'
+import { InventoryPanel, type RepairTarget } from '@/game/inventory-panel'
 import {
   KickConfirmDialog,
   KickedBanner,
@@ -181,6 +182,8 @@ export function GamePage() {
       if (refetchTimer.current !== null) window.clearTimeout(refetchTimer.current)
       refetchTimer.current = window.setTimeout(() => {
         void queryClient.invalidateQueries({ queryKey: ['session', sessionId] })
+        // Выдача предметов ведущим меняет состав каталога (фильтр по инвентарю).
+        void queryClient.invalidateQueries({ queryKey: ['item-catalog', sessionId] })
       }, 400)
     }
     if (COMBAT_REFETCH_TYPES.has(entry.type)) {
@@ -577,13 +580,15 @@ export function GamePage() {
         ? muteSourceOverride[member.id]
         : (member.mute_source as MuteSource | undefined) ?? null
       const memberName = member.name ?? actor?.name ?? member.actor_id
-      const hasConditions = Boolean(!actor?.dead && actor?.conditions.length)
+      // Предметные conditions (item:…) — экипировка, не статус; показывается в кукле
+      const statusConditions = (actor?.conditions ?? []).filter(condition => !condition.id.startsWith('item:'))
+      const hasConditions = Boolean(!actor?.dead && statusConditions.length)
       const unmuteBlocked = memberMuted && (memberSource === 'knockout' || isActorDowned(actor))
       return {
         key: member.id,
         name: memberName,
         note: actor?.dead ? t('game:party.dead')
-          : actor && actor.conditions.length ? actor.conditions.map(condition => t(`game:conditions.${condition.id}`, { defaultValue: condition.id })).join(', ')
+          : statusConditions.length ? statusConditions.map(condition => t(`game:conditions.${condition.id}`, { defaultValue: condition.id })).join(', ')
           : t('game:party.player'),
         noteTestId: hasConditions ? 'condition-label' : undefined,
         portrait: portraitImage
@@ -607,6 +612,17 @@ export function GamePage() {
           />
         ) : undefined,
       }
+    })
+
+  // Цели spend-ремонта (подэтап 7): живые члены партии, включая себя.
+  const repairTargets: RepairTarget[] = session.seats
+    .filter(member => member.role === 'player' && !removedSeats.has(member.id))
+    .flatMap(member => {
+      const actor = state.rules.actors[member.actor_id]
+      if (!actor || actor.dead) return []
+      const memberHp = actor.resources.hp
+      if (memberHp && memberHp.current <= 0) return []
+      return [{ id: member.actor_id, name: member.name ?? actor.name }]
     })
 
   const quickTexts = [
@@ -774,6 +790,18 @@ export function GamePage() {
                   </button>
                 </div>
               </CharacterCard>
+            )}
+            {/* Кукла + рюкзак (подэтап 7): только игроку и только при
+                items_enabled; наблюдателю/ведущему механика не показывается. */}
+            {isPlayer && session.items_enabled && !kicked && (
+              <InventoryPanel
+                sessionId={sessionId}
+                actorId={seat.actor_id}
+                state={state}
+                inCombat={inCombat}
+                disabled={tableStopped || myDowned}
+                targets={repairTargets}
+              />
             )}
             <PartyPanel
               heading={t('game:party.title')}

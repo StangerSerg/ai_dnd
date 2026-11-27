@@ -1,0 +1,7 @@
+id: fantasy-core
+name: Базовое фэнтези
+classes:
+  fighter: {skills: [protect], label: Воин}
+  rogue: {skills: [stealth], label: Плут}
+  cleric: {skills: [cure_wounds], label: Жрец}
+  ranger: {skills: [], label: Следопыт}

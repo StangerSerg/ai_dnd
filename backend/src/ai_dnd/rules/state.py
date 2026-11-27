@@ -50,6 +50,12 @@ class AttackProfile(_Frozen):
     # Запись урона: «1d8+3». None — атака без урона (захват, толчок).
     damage: DiceNotation | None = None
     damage_type: str | None = None
+    # Scenario item id consumed by each attempt, including a miss.
+    ammo: str | None = None
+    # Actor resource id consumed by each attempt, including a miss (numeric ammo).
+    ammo_resource: str | None = None
+    # The thrown item itself is consumed by each attempt.
+    thrown_item: str | None = None
 
 
 class Tactics(_Frozen):

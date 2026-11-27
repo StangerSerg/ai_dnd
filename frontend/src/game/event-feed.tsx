@@ -44,6 +44,12 @@ function entryText(entry: JournalEntry, t: TFunction, nameOf: NameOf): { label: 
       const key = event.effect === 'buff' && event.rounds !== null ? 'buffRounds' : event.effect
       return { label: t('game:feed.item'), text: t(`game:events.itemUsed.${key}`, { name: event.name, actor: nameOf(event.actor_id), rounds: event.rounds ?? '', spell: event.spell ?? '' }) }
     }
+    case 'ItemSpent': {
+      const event = eventOf(entry, 'ItemSpent')
+      if (!event) break
+      const suffix = event.quantity > 1 ? ` ×${event.quantity}` : ''
+      return { label: t('game:feed.item'), text: t('game:events.itemSpent', { name: event.name + suffix, actor: nameOf(event.actor_id) }) }
+    }
     case 'ItemEnhanced': {
       const event = eventOf(entry, 'ItemEnhanced')
       if (!event) break
@@ -207,6 +213,11 @@ function entryText(entry: JournalEntry, t: TFunction, nameOf: NameOf): { label: 
       const event = eventOf(entry, 'Rested')
       if (!event) break
       return { label: t('game:feed.rest'), text: t(`game:events.rested.${event.rest}`, { actors: event.actor_ids.map(nameOf).join(', ') }) }
+    }
+    case 'RestTaken': {
+      const event = eventOf(entry, 'RestTaken')
+      if (!event) break
+      return { label: t('game:feed.rest'), text: t('game:events.restTaken', { name: event.name, actors: event.actor_ids.map(nameOf).join(', ') }) }
     }
     case 'FactNoted':
     case 'SummaryUpdated':

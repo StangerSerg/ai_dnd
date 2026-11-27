@@ -1,0 +1,54 @@
+scenario:
+  title: Тестовый импорт
+  language: en
+  ruleset: dnd5e-srd@1
+  sheet_template: srd5-basic@1
+  start_scene: square
+  synopsis: Герои исследуют площадь и спускаются в усыпальницу.
+  class_pack: fantasy-core
+  available_classes: []
+  items_enabled: true
+scenes:
+- id: square
+  title: Площадь
+  read_aloud: Тихая площадь.
+  npcs:
+  - elder
+  items: []
+  clues: []
+  handouts: []
+  encounters: []
+  exits:
+  - crypt
+  checks:
+  - id: look
+    skill: perception
+    dc: 12
+    on_success:
+      reveal:
+      - clue_marks
+- id: crypt
+  title: Усыпальница
+  npcs: []
+  items: []
+  clues: []
+  handouts: []
+  encounters: []
+  exits:
+  - square
+  checks: []
+npcs:
+- id: elder
+  name: Староста
+  secrets: []
+  attitude: neutral
+  statblock: srd:commoner
+items: []
+clues:
+- id: clue_marks
+  text: Имена стёрты ножом.
+  visibility: dm
+handouts: []
+encounters: []
+lore: []
+statblocks: {}

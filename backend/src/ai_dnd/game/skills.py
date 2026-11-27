@@ -1,11 +1,12 @@
-"""Дата-модель классов и скиллов.
+"""Дата-модель пакетов классов и скиллов.
 
 Скиллы — реестр по id (``content/skills.yaml``), классы ссылаются на них по id
-FK-ссылками (``content/classes.yaml``). Персонаж хранит id класса, а не дисплейную
+FK-ссылками (``content/classes/<pack>.yaml``). Персонаж хранит id класса, а не дисплейную
 строку, поэтому выдача скиллов не зависит от языка карточки. Механика stealth/protect
 появится в Фазе 2; здесь только модель, загрузка и выдача.
 """
 
+import re
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -25,6 +26,7 @@ class HealSkill(_Model):
     spell_id: Literal["cure_wounds"]
     prepared: bool
     disciple_of_life: bool = False
+    consumes_slot: bool = True
 
 
 class StealthSkill(_Model):
@@ -45,20 +47,34 @@ class CharacterClass(_Model):
     label: str | None = None
 
 
+class ClassPack(_Model):
+    id: str = Field(pattern=r"^[a-z][a-z0-9-]*$", max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    classes: dict[str, CharacterClass] = Field(min_length=1)
+
+
 class _SkillsFile(_Model):
     skills: dict[str, Skill]
 
 
-class _ClassesFile(_Model):
-    classes: dict[str, CharacterClass]
+def load_class_pack(content_dir: Path, pack_id: str) -> ClassPack:
+    """Загрузить один пакет, проверить имя файла и ссылки на скиллы."""
+    if not re.fullmatch(r"[a-z][a-z0-9-]*", pack_id):
+        raise ValueError(f"Недопустимый id пакета классов: {pack_id!r}")
+    path = content_dir / "classes" / f"{pack_id}.yaml"
+    pack = ClassPack.model_validate(_read_yaml(path))
+    if pack.id != pack_id:
+        raise ValueError(f"Пакет {path} объявляет id {pack.id!r}, ожидался {pack_id!r}")
+    return pack
 
 
 def load_classes_and_skills(
     content_dir: Path,
+    pack_id: str,
 ) -> tuple[dict[str, CharacterClass], dict[str, Skill]]:
     """Реестры классов и скиллов с проверкой целостности FK-ссылок."""
     skills = _SkillsFile.model_validate(_read_yaml(content_dir / "skills.yaml")).skills
-    classes = _ClassesFile.model_validate(_read_yaml(content_dir / "classes.yaml")).classes
+    classes = load_class_pack(content_dir, pack_id).classes
     for class_id, character_class in classes.items():
         for skill_id in character_class.skills:
             if skill_id not in skills:
@@ -97,6 +113,7 @@ def _cure_wounds_capability(skill: HealSkill, sheet: ComputedSheet) -> CureWound
         spell_id=skill.spell_id,
         prepared=skill.prepared,
         disciple_of_life=skill.disciple_of_life,
+        consumes_slot=skill.consumes_slot,
         spellcasting_modifier=modifier,
     )
 

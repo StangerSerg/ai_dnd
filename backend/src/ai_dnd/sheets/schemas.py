@@ -179,6 +179,8 @@ class AttacksBinding(_Model):
     bonus: FieldId = "bonus"
     damage: FieldId = "damage"
     damage_type: FieldId | None = None
+    # Колонка с id ресурса актёра — числовой боезапас атаки. None — атака без расхода.
+    ammo_resource: FieldId | None = None
 
 
 class Bindings(_Model):

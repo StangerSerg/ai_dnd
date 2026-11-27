@@ -1,0 +1,46 @@
+{
+  "template": "srd5-basic@1",
+  "values": {
+    "name": "Бранд",
+    "race": "Человек",
+    "char_class": "Воин",
+    "background": "Стражник",
+    "alignment": "Законно-нейтральный",
+    "level": 3,
+    "xp": 900,
+    "str": 16,
+    "dex": 13,
+    "con": 15,
+    "int": 10,
+    "wis": 12,
+    "cha": 8,
+    "save_str_prof": true,
+    "save_con_prof": true,
+    "athletics_prof": "proficient",
+    "intimidation_prof": "proficient",
+    "perception_prof": "proficient",
+    "survival_prof": "proficient",
+    "armor_type": "heavy",
+    "armor_base": 16,
+    "shield": true,
+    "ac_bonus": 1,
+    "hit_die": 10,
+    "hp": {"current": 28},
+    "hit_dice": {"current": 3},
+    "attacks": [
+      {"name": "Длинный меч", "bonus": 5, "damage": "1d8+3", "damage_type": "slashing", "notes": ""},
+      {"name": "Лёгкий арбалет", "bonus": 3, "damage": "1d8+1", "damage_type": "piercing", "notes": "дистанция 80/320 фт"}
+    ],
+    "gp": 15,
+    "inventory": [
+      {"name": "Кольчуга", "qty": 1, "notes": "КД 16, помеха Скрытности"},
+      {"name": "Щит", "qty": 1, "notes": "+2 к КД"},
+      {"name": "Длинный меч", "qty": 1, "notes": ""},
+      {"name": "Лёгкий арбалет", "qty": 1, "notes": ""},
+      {"name": "Арбалетные болты", "qty": 20, "notes": ""},
+      {"name": "Набор путешественника", "qty": 1, "notes": ""}
+    ],
+    "features": "Боевой стиль «Оборона»: +1 к КД в доспехе.\nВторое дыхание: бонусным действием восстановить 1к10 + 3 хита, один раз за короткий отдых.\nВсплеск действий: одно дополнительное действие в свой ход, один раз за короткий отдых.\nАрхетип «Чемпион»: критическое попадание при 19–20 на кости атаки.",
+    "proficiencies": "Все доспехи и щиты, простое и воинское оружие. Языки: Общий, Дварфийский."
+  }
+}

@@ -8,11 +8,11 @@
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from ai_dnd.characters.avatars import validate_portrait
 from ai_dnd.characters.models import CharacterRow
@@ -21,7 +21,8 @@ from ai_dnd.characters.service import build_sheet, load_character
 from ai_dnd.config import get_settings
 from ai_dnd.realtime.auth import CurrentUser, GetCurrentUser
 from ai_dnd.resources import Resources, get_resources
-from ai_dnd.scenarios.store import version_language, version_refs
+from ai_dnd.scenarios.models import ScenarioRow, ScenarioVersionRow
+from ai_dnd.scenarios.store import classes_for_version_info, version_language, version_refs
 from ai_dnd.sheets.compiled import compile_template
 from ai_dnd.sheets.issues import SheetValuesError
 from ai_dnd.sheets.models import SheetTemplateRow
@@ -38,16 +39,13 @@ class CharacterListItem(_Schema):
     template_id: uuid.UUID
     portrait: str | None
     updated_at: datetime
-
-
-# Бета-классы: готовые архетипы 3-го уровня из content/characters/<lang>/<class>.json.
-CharacterClass = Literal["fighter", "rogue", "cleric", "ranger"]
+    class_id: str | None = None
 
 
 class CreateCharacterRequest(_Schema):
     name: str = Field(min_length=1, max_length=120)
     scenario_version_id: uuid.UUID
-    char_class: CharacterClass
+    char_class: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=40)
     # Раса — косметический текст; None/пусто — остаётся раса архетипа.
     race: str | None = Field(default=None, max_length=60)
     # Путь пресета из characters.avatars.AVATAR_PRESETS; None — без аватара.
@@ -76,10 +74,11 @@ def _item(row: CharacterRow) -> CharacterListItem:
         template_id=row.template_id,
         portrait=row.portrait,
         updated_at=row.updated_at,
+        class_id=Character.model_validate(row.data).class_id,
     )
 
 
-def _archetype_values(char_class: CharacterClass, language: str) -> dict[str, Any]:
+def _archetype_values(char_class: str, language: str) -> dict[str, Any]:
     """Базовые значения готового архетипа класса (оружие, характеристики, доспех, заклинания)."""
     characters_dir = get_settings().content_dir / "characters"
     path = characters_dir / language / f"{char_class}.json"
@@ -87,11 +86,33 @@ def _archetype_values(char_class: CharacterClass, language: str) -> dict[str, An
         # Фолбэк на ru: en/ranger.json пока нет, а ru-архетипы есть для всех классов;
         # id полей шаблона совпадают между языками, так что значения валидны.
         path = characters_dir / "ru" / f"{char_class}.json"
+    if not path.is_file():
+        raise HTTPException(422, "class_archetype_not_found")
     return dict(load_character(path).values)
 
 
 def build_characters_router(get_current_user: GetCurrentUser) -> APIRouter:
     router = APIRouter(prefix="/api/characters", tags=["characters"])
+
+    @router.get("/classes", response_model=list[str])
+    async def scenario_classes(
+        scenario_version_id: uuid.UUID,
+        user: Annotated[CurrentUser, Depends(get_current_user)],
+        resources: Annotated[Resources, Depends(get_resources)],
+    ) -> list[str]:
+        """Классы публичной или собственной версии; чужие приватные id не раскрываем."""
+        async with resources.db_sessions() as db:
+            info = await db.scalar(
+                select(ScenarioVersionRow.info)
+                .join(ScenarioRow, ScenarioRow.id == ScenarioVersionRow.scenario_id)
+                .where(
+                    ScenarioVersionRow.id == scenario_version_id,
+                    or_(ScenarioRow.visibility == "public", ScenarioRow.author_id == user.user_id),
+                )
+            )
+        if info is None:
+            raise HTTPException(404, "scenario_version_not_found")
+        return list(classes_for_version_info(info, get_settings().content_dir))
 
     @router.get("", response_model=list[CharacterListItem])
     async def list_characters(
@@ -126,6 +147,16 @@ def build_characters_router(get_current_user: GetCurrentUser) -> APIRouter:
             language = await version_language(sessions, body.scenario_version_id)
         except FileNotFoundError as error:
             raise HTTPException(404, "scenario_version_not_found") from error
+        async with sessions() as db:
+            info = await db.scalar(
+                select(ScenarioVersionRow.info).where(
+                    ScenarioVersionRow.id == body.scenario_version_id
+                )
+            )
+        if info is None:
+            raise HTTPException(404, "scenario_version_not_found")
+        if body.char_class not in classes_for_version_info(info, get_settings().content_dir):
+            raise HTTPException(422, "class_not_available")
         async with sessions() as db:
             template_row = await db.get(SheetTemplateRow, template_id)
         if template_row is None:

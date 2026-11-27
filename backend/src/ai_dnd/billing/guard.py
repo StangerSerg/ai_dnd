@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from ai_dnd.ai.config import LLMConfig
 from ai_dnd.ai.gateway import LLMGateway, Structured
+from ai_dnd.ai.provider import LLMError
 from ai_dnd.ai.recorder import CallContext
 from ai_dnd.ai.schemas import LLMResponse, Message, StreamEnd, StreamEvent, ToolChoice, ToolSpec
 from ai_dnd.billing.errors import BillingStop
@@ -60,6 +61,9 @@ class BillingGuard:
                 json_output=json_output,
                 context=context,
             )
+        except LLMError as error:
+            await self._settle_or_release(ref, error)
+            raise
         except Exception:
             await self._release(ref)
             raise
@@ -85,6 +89,11 @@ class BillingGuard:
                     await self._settle(ref, event.response.cost)
                     settled = True
                 yield event
+        except LLMError as error:
+            if not settled:
+                await self._settle_or_release(ref, error)
+                settled = True
+            raise
         finally:
             # Поток оборвался (ошибка или ранний выход потребителя): резерв возвращается.
             if not settled:
@@ -101,6 +110,9 @@ class BillingGuard:
         ref = await self._before(context)
         try:
             result = await self._inner.structured(task, messages, schema, context=context)
+        except LLMError as error:
+            await self._settle_or_release(ref, error)
+            raise
         except Exception:
             await self._release(ref)
             raise
@@ -129,6 +141,12 @@ class BillingGuard:
 
     async def _settle(self, ref: LedgerRef, cost: Decimal) -> None:
         await self._ledger.settle(ref, usd_to_credits(cost, self._settings.credit_usd))
+
+    async def _settle_or_release(self, ref: LedgerRef, error: LLMError) -> None:
+        if error.confirmed_cost is None:
+            await self._release(ref)
+        else:
+            await self._settle(ref, error.confirmed_cost)
 
     async def _release(self, ref: LedgerRef) -> None:
         await self._ledger.refund(ref, self._settings.reserve_credits)

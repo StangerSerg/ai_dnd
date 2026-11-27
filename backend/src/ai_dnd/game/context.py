@@ -25,8 +25,15 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from ai_dnd.game.content import GameContent
 from ai_dnd.game.decision import TurnDecision
 from ai_dnd.game.presence import is_dead, is_present
-from ai_dnd.game.session import InventoryItem, SessionSetup, SessionState
+from ai_dnd.game.session import (
+    InventoryItem,
+    SessionSetup,
+    SessionState,
+    attack_cost_id,
+    item_stock,
+)
 from ai_dnd.game.spells import CURE_WOUNDS_TOOL, FIRST_LEVEL_SLOT
+from ai_dnd.game.tones import TONE_INSTRUCTIONS
 from ai_dnd.i18n import localize
 from ai_dnd.rules.combat import incapacitated_by
 from ai_dnd.rules.engine import BUFF_CONDITION_PREFIX, ITEM_CONDITION_PREFIX
@@ -93,9 +100,9 @@ class ContextBuilder:
 
     @cached_property
     def system_prompt(self) -> str:
-        return self._render_system(include_style=True)
+        return self._render_system(include_style=True, private_context=False)
 
-    def _render_system(self, *, include_style: bool) -> str:
+    def _render_system(self, *, include_style: bool, private_context: bool) -> str:
         ruleset = self._content.ruleset
         scenario = self._content.scenario
         language = self._language
@@ -118,11 +125,15 @@ class ContextBuilder:
             "conditions": _labels(ruleset.conditions, language),
             "ruleset_summary": localize(ruleset.summary, language) if ruleset.summary else "",
             "glossary": glossary,
-            "scenario": scenario.scenario,
-            "scenes": scenario.scenes,
-            "npcs": scenario.npcs,
+            "scenario": scenario.scenario
+            if private_context
+            else {"title": scenario.scenario.title},
+            "scenes": scenario.scenes if private_context else (),
+            "npcs": scenario.npcs if private_context else (),
             "seats": self._setup.seats,
             "include_style": include_style,
+            "private_context": private_context,
+            "items_enabled": scenario.scenario.items_enabled,
         }
         # Планировщик отвечает только JSON: прозаический стиль ему не нужен и противоречил
         # бы протоколу решения; рассказчик получает стиль целиком.
@@ -130,6 +141,9 @@ class ContextBuilder:
             values["style"] = _render(
                 f"style_{language}.j2" if language in ("ru", "en") else "style_en.j2"
             )
+            tone_instruction = TONE_INSTRUCTIONS[self._setup.tone]
+            if tone_instruction:
+                values["style"] += "\n\n" + _render("tone.j2", instruction=tone_instruction)
         return _render("dm_system.j2", **values)
 
     # --- Слой 2: история ---
@@ -155,9 +169,14 @@ class ContextBuilder:
             separators=(",", ":"),
         )
         return (
-            self._render_system(include_style=False)
+            self._render_system(include_style=False, private_context=True)
             + "\n\n"
-            + _render("decision_system.j2", schema=schema, cure_wounds_tool=CURE_WOUNDS_TOOL)
+            + _render(
+                "decision_system.j2",
+                schema=schema,
+                cure_wounds_tool=CURE_WOUNDS_TOOL,
+                items_enabled=self._content.scenario.scenario.items_enabled,
+            )
         )
 
     def decision_message(
@@ -173,7 +192,7 @@ class ContextBuilder:
         # Действия рендерятся один раз — блоком с авторитетными индексами ниже;
         # снимок сцены идёт без них, чтобы текст игрока не дублировался. Формат
         # «input_index=N, actor_id=X: » сохранён: его разбирает FakeProvider.
-        snapshot = self.turn_message(state, (), fragments=fragments)
+        snapshot = self._render_turn(state, (), private_context=True, fragments=fragments)
         indexed = "\n".join(
             f"- input_index={index}, actor_id={action.actor_id}: {action.name} — {action.text}"
             for index, action in actions
@@ -184,12 +203,17 @@ class ContextBuilder:
             if seat.cure_wounds is None or not seat.cure_wounds.prepared:
                 continue
             actor = state.rules.actor(seat.actor_id)
-            slot = actor.resources.get(FIRST_LEVEL_SLOT)
-            prepared.append(f"- {actor.id}: {slot.current if slot is not None else 0}")
+            if seat.cure_wounds.consumes_slot:
+                slot = actor.resources.get(FIRST_LEVEL_SLOT)
+                available = str(slot.current if slot is not None else 0)
+            else:
+                available = "unlimited (no spell slot spent)"
+            prepared.append(f"- {actor.id}: {available}")
         casters = "\n".join(prepared) or "- none"
         return (
             f"{snapshot}\n\n# Unresolved original inputs (authoritative indices)\n{indexed}"
-            f"\n\n# Prepared Cure Wounds casters (actor id: first-level slots remaining)\n{casters}"
+            "\n\n# Prepared Cure Wounds casters "
+            f"(actor id: first-level slots remaining or unlimited)\n{casters}"
             f"\n\n# Already committed operations and actual outcomes\n{ledger}"
             f"\n\n# Movement already completed in this turn\n{moved}"
             "\n\n# Encounters already started in this session (do not start again)\n"
@@ -255,7 +279,7 @@ class ContextBuilder:
                 + "\nThe fight has begun; no attacks or damage are resolved by this narration."
             )
         return (
-            self.turn_message(state, actions, fragments=fragments)
+            self.public_turn_message(state, actions, fragments=fragments)
             + "\n\n# Committed events and actual tool outcomes (authoritative)\n"
             + ledger
             + roster
@@ -286,24 +310,47 @@ class ContextBuilder:
         opening: bool = False,
         fragments: Sequence[str] = (),
     ) -> str:
+        """Full scene snapshot for the planner and legacy callers."""
+        return self._render_turn(
+            state, actions, private_context=True, opening=opening, fragments=fragments
+        )
+
+    def public_turn_message(
+        self,
+        state: SessionState,
+        actions: Sequence[ActionLine],
+        *,
+        opening: bool = False,
+        fragments: Sequence[str] = (),
+    ) -> str:
+        """Player-facing scene snapshot for opening and ordinary narration."""
+        return self._render_turn(
+            state, actions, private_context=False, opening=opening, fragments=fragments
+        )
+
+    def _render_turn(
+        self,
+        state: SessionState,
+        actions: Sequence[ActionLine],
+        *,
+        private_context: bool,
+        opening: bool = False,
+        scene_update: bool = False,
+        fragments: Sequence[str] = (),
+    ) -> str:
         return _render(
             "turn.j2",
-            **self._scene_view(state),
+            **self._scene_view(state, private_context=private_context),
+            private_context=private_context,
             opening=opening,
             actions=actions,
-            scene_update=False,
+            scene_update=scene_update,
             fragments=fragments,
         )
 
     def scene_update_message(self, state: SessionState) -> str:
         """Full current scene for a change_scene tool result, without a new player turn."""
-        return _render(
-            "turn.j2",
-            **self._scene_view(state),
-            opening=False,
-            actions=(),
-            scene_update=True,
-        )
+        return self._render_turn(state, (), private_context=True, scene_update=True)
 
     def combat_message(
         self,
@@ -399,11 +446,18 @@ class ContextBuilder:
         elif ended:
             ending = (
                 "\nThe fight is over. Describe the aftermath briefly and hand control back to "
-                "the players."
+                "the players. If the combat log shows item grants (🎒 ... gets:), that victory "
+                "loot is already committed by the mechanics: narrate the party finding and "
+                "collecting exactly those items, never grant or duplicate them again."
             )
         else:
             ending = ""
-        epithets = _WOUND_EPITHETS.get(self._language, {})
+        # Сценарные ярлыки поверх дефолтных: только рендер, канонические ключи аудита
+        # в mandatory не меняются.
+        epithets = {
+            **_WOUND_EPITHETS.get(self._language, {}),
+            **self._content.scenario.scenario.wound_epithets,
+        }
         mandatory_text = (
             "\n".join(
                 f"{i}. {_localize_epithets(item, epithets)}" for i, item in enumerate(mandatory, 1)
@@ -459,7 +513,7 @@ class ContextBuilder:
             "and the result (wounded / downed unconscious / killed). Narrate each damage "
             "item using the exact wound-severity epithet shown in its checklist item, "
             "woven naturally into the prose (e.g. «волк вцепился в бок, оставив "
-            "серьёзное ранение»). "
+            f"{epithets.get('serious wound', 'serious wound')}»). "
             "NEVER write a numeric count of wounds like «6 ран» / «six wounds», and "
             "never state raw damage numbers — the epithet already encodes the "
             "severity. Describe each damage event "
@@ -489,7 +543,7 @@ class ContextBuilder:
 
     # --- Внутреннее ---
 
-    def _scene_view(self, state: SessionState) -> dict[str, Any]:
+    def _scene_view(self, state: SessionState, *, private_context: bool) -> dict[str, Any]:
         scenario = self._content.scenario
         scene = self._scene(state.scene_id)
         npcs = [
@@ -498,8 +552,8 @@ class ContextBuilder:
                 "name": npc.name,
                 "attitude": state.attitudes.get(npc.id, npc.attitude),
                 "description": npc.description,
-                "personality": npc.personality,
-                "secrets": list(npc.secrets),
+                "personality": npc.personality if private_context else None,
+                "secrets": list(npc.secrets) if private_context else [],
             }
             for npc in scenario.npcs
             # Присутствие детерминировано: scene.npcs — суперсет по фазам, локация
@@ -522,15 +576,23 @@ class ContextBuilder:
                 "reveals": list(check.on_success.reveal) if check.on_success else [],
             }
             for check in scene.checks
+            if private_context
         ]
         here = (*scene.clues, *scene.items, *scene.handouts)
         entities = [
             {
                 "id": entity_id,
-                "status": "discovered" if state.is_revealed(entity_id) else "hidden",
+                "status": (
+                    "discovered"
+                    if state.is_revealed(entity_id)
+                    else "hidden"
+                    if private_context or not self._entity_is_public(entity_id)
+                    else "visible"
+                ),
                 "text": self._entity_text(entity_id),
             }
             for entity_id in here
+            if private_context or state.is_revealed(entity_id) or self._entity_is_public(entity_id)
         ]
         encounters = [
             {
@@ -543,26 +605,65 @@ class ContextBuilder:
                 ),
             }
             for encounter in scenario.encounters
-            if encounter.id in scene.encounters
+            if private_context and encounter.id in scene.encounters
         ]
         exits = [{"id": exit_id, "title": self._scene(exit_id).title} for exit_id in scene.exits]
+        rest = None
+        if private_context and scene.rest is not None:
+            policy = scene.rest
+            rest = {
+                "id": policy.id,
+                "name": policy.name,
+                "resources": policy.resources,
+                "after_encounters": policy.after_encounters,
+                "status": (
+                    "used"
+                    if policy.id in state.used_rests
+                    else "available"
+                    if state.rules.combat is None
+                    and any(
+                        state.encounter_outcomes.get(encounter_id) == "party"
+                        for encounter_id in policy.after_encounters
+                    )
+                    else "locked"
+                ),
+            }
         revealed = [
             self._entity_text(entity_id) for entity_id in state.revealed if entity_id not in here
         ]
         return {
-            "scene": scene,
+            "scene": scene
+            if private_context
+            else {
+                "id": scene.id,
+                "title": scene.title,
+                "read_aloud": scene.read_aloud,
+                "dm_notes": None,
+            },
             "npcs": npcs,
             "dead_npcs": dead_npcs,
             "checks": checks,
             "entities": entities,
             "encounters": encounters,
             "exits": exits,
+            "rest": rest,
             "party": self._party(state),
             "revealed": revealed,
-            "facts": list(state.facts),
+            "facts": list(state.facts) if private_context else [],
         }
 
+    def _entity_is_public(self, entity_id: str) -> bool:
+        scenario = self._content.scenario
+        return any(
+            entity.id == entity_id and entity.visibility == "public"
+            for group in (scenario.clues, scenario.items, scenario.handouts)
+            for entity in group
+        )
+
     def _party(self, state: SessionState) -> list[dict[str, Any]]:
+        # Тумблер предметов (подэтап 7): при выключенном инвентарь и экипировка
+        # не попадают в контекст ведущего — предметы живут только в его памяти.
+        items_enabled = self._content.scenario.scenario.items_enabled
         members = []
         for seat in self._setup.seats:
             actor = state.rules.actors[seat.actor_id]
@@ -579,18 +680,50 @@ class ContextBuilder:
                 # item:* — служебные условия экипировки; мастер видит их строкой equipment.
                 if not item.id.startswith(ITEM_CONDITION_PREFIX)
             )
-            items = ", ".join(
-                item.name
-                + (f" +{item.enhancement}" if item.enhancement else "")
-                + (f" ×{item.quantity}" if item.quantity > 1 else "")
-                for item in state.inventory.get(seat.actor_id, ())
+            items = (
+                ", ".join(
+                    item.name
+                    + (f" +{item.enhancement}" if item.enhancement else "")
+                    + (f" ×{item.quantity}" if item.quantity > 1 else "")
+                    for item in state.inventory.get(seat.actor_id, ())
+                )
+                if items_enabled
+                else ""
             )
-            equipment = ", ".join(
-                f"{slot}: {entries[item_id].name}"
-                + (f" +{entries[item_id].enhancement}" if entries[item_id].enhancement else "")
-                for item_id, slot in worn.items()
-                if item_id in entries
-            )
+            equipment_parts = []
+            for item_id, slot in worn.items():
+                if item_id not in entries:
+                    continue
+                entry = entries[item_id]
+                part = f"{slot}: {entry.name}" + (
+                    f" +{entry.enhancement}" if entry.enhancement else ""
+                )
+                # Остаток боеприпасов экипированного оружия виден ведущему.
+                profile = actor.attacks.get(f"item:{item_id}")
+                cost = attack_cost_id(profile) if profile is not None else None
+                if cost is not None and profile is not None:
+                    stock = item_stock(state, seat.actor_id, cost)
+                    if profile.ammo is not None:
+                        ammo_name = entries[cost].name if cost in entries else cost
+                        part += f" (ammo: {ammo_name} ×{stock})"
+                    else:
+                        part += f" (thrown, left: {stock})"
+                equipment_parts.append(part)
+            # Числовой боезапас атак (например, ракеты корабля): остаток ресурса
+            # виден ведущему так же, как остаток предметных боеприпасов.
+            for profile in actor.attacks.values():
+                if profile.ammo_resource is None:
+                    continue
+                resource = actor.resources.get(profile.ammo_resource)
+                definition = self._content.ruleset.resources.get(profile.ammo_resource)
+                ammo_name = (
+                    localize(definition.label, self._language)
+                    if definition is not None
+                    else profile.ammo_resource
+                )
+                left = resource.current if resource is not None else 0
+                equipment_parts.append(f"{profile.name} (ammo: {ammo_name} ×{left})")
+            equipment = ", ".join(equipment_parts) if items_enabled else ""
             ac = actor.ac
             if ac is not None:
                 ac += sum(self._item_ac_bonus(item_id) for item_id in worn)

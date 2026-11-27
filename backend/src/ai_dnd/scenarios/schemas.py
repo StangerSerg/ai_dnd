@@ -94,9 +94,18 @@ class ScenarioInfo(_Model):
     synopsis: _Text
     # Тон и манера повествования.
     tone: _Text | None = None
-    # Классы, доступные персонажам сценария: id из content/classes.yaml.
-    # Пусто (в том числе в старых YAML без блока) — доступны все классы.
+    # Новые YAML обязаны указывать пакет; None допускается только для уже
+    # опубликованных legacy-версий, которые разбирает адаптер store.
+    class_pack: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9-]*$", max_length=40)
+    # Поле старой закреплённой версии. Новые YAML с ним не публикуются.
     available_classes: tuple[EntityId, ...] = ()
+    # Тумблер предметной механики (подэтап 7). False — предметы живут только в памяти
+    # ведущего: контекст без инвентаря, предметные инструменты запрещены, лут не выдаётся.
+    items_enabled: bool = True
+    # Нативные ярлыки тяжести урона поверх дефолтных (только рендер, не механика).
+    # Ключи — канонические английские («light wound», …); допустимость проверяет
+    # find_scenario_issues (код unknown_wound_epithet).
+    wound_epithets: dict[str, _Line] = Field(default_factory=dict)
 
 
 class CheckResult(_Model):
@@ -121,6 +130,15 @@ class SceneCheck(_Model):
     on_failure: CheckResult | None = None
 
 
+class SceneRest(_Model):
+    """One authored, single-use recovery opportunity in a scene."""
+
+    id: EntityId
+    name: _Line
+    after_encounters: tuple[EntityId, ...] = Field(min_length=1)
+    resources: tuple[Literal["hp", "spell_slots_1"], ...] = Field(min_length=1)
+
+
 class Scene(_Model):
     id: EntityId
     title: _Line
@@ -136,6 +154,7 @@ class Scene(_Model):
     # В какие сцены отсюда можно перейти.
     exits: tuple[EntityId, ...] = ()
     checks: tuple[SceneCheck, ...] = ()
+    rest: SceneRest | None = None
 
 
 class Npc(_Model):
@@ -159,6 +178,16 @@ MAX_ITEM_ENHANCEMENT = 3
 
 ItemKind = Literal["weapon", "armor", "wearable", "consumable", "other"]
 ItemSlot = Literal["weapon", "armor", "amulet", "ring", "cloak", "other"]
+ItemConsumeTrigger = Literal["use", "attack", "throw", "spend"]
+
+
+class ItemAttack(_Model):
+    """Attack made available by an equipped scenario weapon."""
+
+    name: _Line
+    bonus: int
+    damage: DiceNotation | None = None
+    damage_type: EntityId | None = None
 
 
 class ItemHeal(_Model):
@@ -208,6 +237,15 @@ class Item(_Model):
     # чтобы превышение попало в issues-отчёт, а не в ошибку схемы.
     enhancement: Annotated[int, Field(ge=0)] = 0
     consumable_effect: ItemUseEffect | None = None
+    consume_on: ItemConsumeTrigger | None = None
+    # The weapon uses one unit of this scenario item for each attempted attack.
+    ammo: EntityId | None = None
+    attack: ItemAttack | None = None
+    # A spend action can repair another actor, up to this many hit points per unit.
+    repair_hp: Annotated[int, Field(ge=1)] | None = None
+    # Иконка из фиксированного каталога scenarios/icons.py; None — без иконки.
+    # Допустимость id проверяет find_scenario_issues (код unknown_icon).
+    icon: EntityId | None = None
 
 
 class Clue(_Model):
@@ -242,6 +280,14 @@ class EncounterGroup(_Model):
     name: _Line | None = None
 
 
+class LootEntry(_Model):
+    """Запись таблицы дропа энкаунтера: сценарный предмет, количество и шанс."""
+
+    item_id: EntityId
+    quantity: Annotated[int, Field(ge=1)] = 1
+    chance: Annotated[float, Field(gt=0, le=1)] = 1.0
+
+
 class Encounter(_Model):
     """Столкновение: кто противостоит героям."""
 
@@ -250,6 +296,10 @@ class Encounter(_Model):
     # Обстоятельства и поведение противников — для ведущего.
     description: _Text | None = None
     creatures: tuple[EncounterGroup, ...] = Field(min_length=1)
+    # Дроп при победе партии: выдаёт механика, ведущий только нарратирует находку.
+    loot: tuple[LootEntry, ...] = ()
+    # Факты победы: фиксирует механика тем же коммитом, что CombatEnded; ведущий только нарратирует.
+    victory_facts: tuple[_Line, ...] = ()
 
 
 class MapNode(_Model):

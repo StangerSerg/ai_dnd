@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Own project icon: flat amulet, gold chain / green gem pendant -->
+  <path d="M14 4c2 12 8 20 18 24C42 24 48 16 50 4" fill="none" stroke="#c8a56a" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="32" cy="30" r="4" fill="#f2cf8e"/>
+  <path d="M32 34l12 10-12 16-12-16z" fill="#7a8f5a"/>
+  <path d="M32 34l12 10-12 16z" fill="#5f7346"/>
+  <path d="M20 44h24l-12 16z" fill="#93a86f" opacity=".55"/>
+  <path d="M32 34l12 10-12 16-12-16z" fill="none" stroke="#c8a56a" stroke-width="3" stroke-linejoin="round"/>
+</svg>

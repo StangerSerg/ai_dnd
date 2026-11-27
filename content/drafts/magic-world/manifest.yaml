@@ -1,0 +1,22 @@
+draft_format_version: 1
+id: magic-world
+author_project_name: magic_world
+language: ru
+status: local_accepted
+published: false
+source:
+  path: source.ru.txt
+  sha256: 4fd8d27c1e40dae392ea0b63a5ba03789e8d841cf2823b15fe994dc7daa43d23
+design:
+  structured: scenario-design.ru.yaml
+  readable: scenario-design.ru.md
+kind: authorial_scenario_draft
+runtime_schema: false
+runtime_adaptation:
+  path: ../../scenarios/magic-world.ru.yaml
+  status: local_accepted
+  notes: "Локальная игровая адаптация v0.2: точечные магические бои, факты, условные финалы и водное лечение вне боя как третья активная стартовая форма по решению пользователя 25.11.2026; без ограничения применений по уточнению 26.11.2026. Локально принят Root и Astra 26.11.2026. Не опубликована и не импортирована в БД."
+deferred_features:
+  - "Полная магия, обучение и замена одного из трёх заклинаний, массовые эффекты."
+  - "Числовые правила ритуалов, амулета, кристаллов и камней силы."
+  - "Канонические детали спора кланов и приоритет одновременных ритуалов."

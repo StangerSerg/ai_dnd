@@ -11,6 +11,7 @@ from ai_dnd.game.events import (
     ItemEnhanced,
     ItemEquipped,
     ItemGranted,
+    ItemSpent,
     ItemUnequipped,
     ItemUsed,
     JournalEvent,
@@ -18,6 +19,7 @@ from ai_dnd.game.events import (
     NpcAttitudeChanged,
     PartyDefeated,
     PlayerActed,
+    RestTaken,
     Revealed,
     SceneChanged,
 )
@@ -76,6 +78,9 @@ _TEXTS: dict[str, dict[str, str]] = {
         "time": "Проходит время: {rounds} раунд(ов)",
         "rest_short": "Короткий отдых",
         "rest_long": "Долгий отдых",
+        "rest_taken": "Отдых завершён — {name}. Участники: {actors}.",
+        "rest_hp": "хиты",
+        "rest_spell_slots_1": "ячейки заклинаний 1-го уровня",
         "scene": "Сцена: {title}",
         "revealed": "Открыто: {text}",
         "attitude": "{npc}: отношение — {attitude}",
@@ -86,6 +91,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "item_used": "{actor} использует: {item}",
         "item_used_rounds": " (эффект на {rounds} раунд(ов))",
         "item_used_spell": "{actor} использует: {item} — заклинание «{spell}»",
+        "item_spent": "{actor} тратит: {item}",
         "item_enhanced": "{actor}: {item} заточен до +{enhancement}",
         "buff_off": "Эффект «{item}» спадает: {actor}",
         "slot_weapon": "оружие",
@@ -133,6 +139,9 @@ _TEXTS: dict[str, dict[str, str]] = {
         "time": "Time passes: {rounds} round(s)",
         "rest_short": "Short rest",
         "rest_long": "Long rest",
+        "rest_taken": "Rest completed — {name}. Participants: {actors}.",
+        "rest_hp": "HP",
+        "rest_spell_slots_1": "1st-level spell slots",
         "scene": "Scene: {title}",
         "revealed": "Discovered: {text}",
         "attitude": "{npc}: attitude is now {attitude}",
@@ -145,6 +154,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "item_used": "{actor} uses: {item}",
         "item_used_rounds": " (effect for {rounds} round(s))",
         "item_used_spell": '{actor} uses: {item} — spell "{spell}"',
+        "item_spent": "{actor} spends: {item}",
         "item_enhanced": "{actor}: {item} is enhanced to +{enhancement}",
         "buff_off": "The effect of {item} wears off: {actor}",
         "slot_weapon": "weapon",
@@ -298,6 +308,11 @@ class EventRenderer:
                 return t["time"].format(rounds=event.rounds)
             case Rested():
                 return t["rest_short"] if event.rest == "short" else t["rest_long"]
+            case RestTaken():
+                return t["rest_taken"].format(
+                    name=event.name,
+                    actors=", ".join(name(actor_id) for actor_id in event.actor_ids),
+                )
             case SceneChanged():
                 return "📍 " + t["scene"].format(title=self._scene_title(event.scene_id))
             case Revealed():
@@ -332,6 +347,9 @@ class EventRenderer:
                 if event.effect == "buff" and event.rounds is not None:
                     line_text += t["item_used_rounds"].format(rounds=event.rounds)
                 return line_text
+            case ItemSpent():
+                suffix = f" ×{event.quantity}" if event.quantity > 1 else ""
+                return t["item_spent"].format(actor=name(event.actor_id), item=event.name + suffix)
             case ItemEnhanced():
                 return "⚒ " + t["item_enhanced"].format(
                     actor=name(event.actor_id), item=event.name, enhancement=event.enhancement

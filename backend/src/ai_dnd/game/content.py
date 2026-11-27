@@ -52,12 +52,15 @@ def load_game_content(content_dir: Path, scenario: str, language: str) -> GameCo
         for path in sorted((content_dir / "bestiary").glob("*.yaml"))
         if read_yaml(path).get("ruleset") == ruleset.ref
     )
-    classes, skills = load_classes_and_skills(content_dir)
+    scenario_content = load_scenario(path, bestiaries, ruleset, content_dir=content_dir)
+    pack_id = scenario_content.scenario.class_pack
+    assert pack_id is not None  # load_scenario уже отклонил отсутствие пакета.
+    classes, skills = load_classes_and_skills(content_dir, pack_id)
     return GameContent(
         ruleset=ruleset,
         template=template,
         bestiaries=bestiaries,
-        scenario=load_scenario(path, bestiaries, ruleset),
+        scenario=scenario_content,
         glossary=load_glossary(content_dir / "glossary.yaml"),
         classes=classes,
         skills=skills,
@@ -75,9 +78,13 @@ def load_party(
     actors: list[Actor] = []
     for number, name in enumerate(characters, start=1):
         character = load_character(content_dir / "characters" / content.language / f"{name}.json")
+        # Встроенные карточки до class_id именовались по классу файла.
+        class_id = character.class_id or name
+        if class_id not in content.classes:
+            raise ValueError(f"Класс персонажа {name!r} недоступен в сценарии")
         sheet = build_sheet(character, content.template)
         display = str(sheet.values.get("name") or name)
-        granted, cure_wounds = class_grants(content.classes, content.skills, name, sheet)
+        granted, cure_wounds = class_grants(content.classes, content.skills, class_id, sheet)
         actors.append(actor_from_sheet(name, display, sheet, skills=granted))
         seats.append(
             PlayerSeat(

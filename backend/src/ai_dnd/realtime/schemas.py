@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ai_dnd.game.session import Improvisation
 from ai_dnd.game.spells import CureWoundsCapability
+from ai_dnd.game.tones import Tone
+from ai_dnd.scenarios.schemas import Item
 
 
 class _Schema(BaseModel):
@@ -19,6 +21,7 @@ class CreateSessionRequest(_Schema):
     language: str = "ru"
     dm_mode: Literal["ai", "human"] = "ai"
     improvisation: Improvisation = "moderate"
+    tone: Tone = "default"
     # Персонаж создателя: обязателен при dm_mode="ai" (создатель садится игроком).
     character_id: uuid.UUID | None = None
     # Публичность и ёмкость можно задать сразу, не открывая набор отдельным запросом.
@@ -150,6 +153,21 @@ class SessionResponse(_Schema):
     spectators: int = 0
     # Лидерство определяется host_id сессии (не ролью места); host_id клиенту не отдаётся.
     is_host: bool
+    # Тумблер предметной механики закреплённой версии сценария (подэтап 7):
+    # False — фронтенд скрывает куклу и инвентарь.
+    items_enabled: bool = True
+
+
+class ItemCatalogResponse(_Schema):
+    """Каталог предметов закреплённой версии сценария (подэтап 7, frontend-кукла).
+
+    Полные определения Item (slot/icon/kind/consume_on/consumable_effect/attack/
+    repair_hp), отфильтрованные по видимости места. ``items_enabled=False`` —
+    механика выключена или версия не закреплена, список всегда пуст.
+    """
+
+    items_enabled: bool
+    items: list[Item]
 
 
 class EventsResponse(_Schema):

@@ -1,0 +1,70 @@
+# Глоссарий: как термины 5-й редакции называются по-русски и по-английски.
+# Один термин — один перевод: и в интерфейсе, и в ответах ИИ.
+# Названия характеристик, навыков, состояний и типов урона сюда не входят —
+# они записаны в наборе правил (content/rulesets/dnd5e-srd.json).
+terms:
+  # Ведение игры
+  - {id: game_master, text: {en: Game Master, ru: Ведущий}, abbr: {en: GM}}
+  - {id: player_character, text: {en: player character, ru: персонаж игрока}}
+  - {id: nonplayer_character, text: {en: nonplayer character, ru: неигровой персонаж}, abbr: {en: NPC, ru: НИП}}
+  - {id: adventure, text: {en: adventure, ru: приключение}}
+  - {id: encounter, text: {en: encounter, ru: столкновение}}
+
+  # Персонаж
+  - {id: ability_score, text: {en: ability score, ru: значение характеристики}}
+  - {id: ability_modifier, text: {en: ability modifier, ru: модификатор характеристики}}
+  - {id: skill, text: {en: skill, ru: навык}}
+  - {id: proficiency, text: {en: proficiency, ru: владение}}
+  - {id: proficiency_bonus, text: {en: proficiency bonus, ru: бонус мастерства}}
+  - {id: expertise, text: {en: expertise, ru: компетентность}}
+  - {id: level, text: {en: level, ru: уровень}}
+  - {id: experience_points, text: {en: experience points, ru: опыт}, abbr: {en: XP}}
+  - {id: race, text: {en: race, ru: раса}}
+  - {id: class, text: {en: class, ru: класс}}
+  - {id: background, text: {en: background, ru: предыстория}}
+  - {id: alignment, text: {en: alignment, ru: мировоззрение}}
+  - {id: inspiration, text: {en: inspiration, ru: вдохновение}}
+
+  # Броски
+  - {id: ability_check, text: {en: ability check, ru: проверка характеристики}}
+  - {id: saving_throw, text: {en: saving throw, ru: спасбросок}}
+  - {id: attack_roll, text: {en: attack roll, ru: бросок атаки}}
+  - {id: difficulty_class, text: {en: Difficulty Class, ru: Сложность}, abbr: {en: DC, ru: Сл}}
+  - {id: advantage, text: {en: advantage, ru: преимущество}}
+  - {id: disadvantage, text: {en: disadvantage, ru: помеха}}
+  - {id: contest, text: {en: contest, ru: состязание}}
+  - {id: passive_check, text: {en: passive check, ru: пассивная проверка}}
+  - {id: critical_hit, text: {en: critical hit, ru: критическое попадание}}
+
+  # Бой
+  - {id: armor_class, text: {en: Armor Class, ru: Класс доспеха}, abbr: {en: AC, ru: КД}}
+  - {id: hit_points, text: {en: hit points, ru: хиты}, abbr: {en: HP}}
+  - {id: temporary_hit_points, text: {en: temporary hit points, ru: временные хиты}}
+  - {id: hit_dice, text: {en: Hit Dice, ru: Кости хитов}}
+  - {id: initiative, text: {en: initiative, ru: инициатива}}
+  - {id: round, text: {en: round, ru: раунд}}
+  - {id: turn, text: {en: turn, ru: ход}}
+  - {id: action, text: {en: action, ru: действие}}
+  - {id: bonus_action, text: {en: bonus action, ru: бонусное действие}}
+  - {id: reaction, text: {en: reaction, ru: реакция}}
+  - {id: movement, text: {en: movement, ru: перемещение}}
+  - {id: speed, text: {en: speed, ru: скорость}}
+  - {id: damage, text: {en: damage, ru: урон}}
+  - {id: resistance, text: {en: resistance, ru: сопротивление}}
+  - {id: vulnerability, text: {en: vulnerability, ru: уязвимость}}
+  - {id: immunity, text: {en: immunity, ru: иммунитет}}
+  - {id: condition, text: {en: condition, ru: состояние}}
+  - {id: opportunity_attack, text: {en: opportunity attack, ru: провоцированная атака}}
+  - {id: cover, text: {en: cover, ru: укрытие}}
+
+  # Отдых
+  - {id: short_rest, text: {en: short rest, ru: короткий отдых}}
+  - {id: long_rest, text: {en: long rest, ru: продолжительный отдых}}
+
+  # Магия
+  - {id: spell, text: {en: spell, ru: заклинание}}
+  - {id: cantrip, text: {en: cantrip, ru: заговор}}
+  - {id: spell_slot, text: {en: spell slot, ru: ячейка заклинания}}
+  - {id: spell_save_dc, text: {en: spell save DC, ru: сложность спасброска от заклинания}}
+  - {id: concentration, text: {en: concentration, ru: концентрация}}
+  - {id: ritual, text: {en: ritual, ru: ритуал}}

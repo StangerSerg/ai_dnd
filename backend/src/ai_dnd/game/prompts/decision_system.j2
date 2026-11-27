@@ -12,11 +12,25 @@ Return exactly one action for each unresolved input_index, with its original act
   only the repositioning. Use the applicable check or effect for an obstacle or risky action.
 - `engage`: only when players explicitly attack or join the listed encounter. Set encounter_id.
 - `tool`: one necessary world or check effect; set tool_name and arguments. Allowed:
-  request_check, request_save, reveal, set_npc_attitude, grant_item, adjust_resource,
-  {{ cure_wounds_tool }}, note_fact, protect, stealth, equip_item, unequip_item, use_item,
-  enhance_item.
+  request_check, request_save, reveal, set_npc_attitude, adjust_resource,
+  {{ cure_wounds_tool }}, take_rest (only when this scene has an available authored rest), note_fact, protect, stealth{% if items_enabled %}, grant_item, equip_item,
+  unequip_item, use_item, enhance_item, spend_item{% endif %}.
 - `stay`: conversation, observation with no uncertain outcome, or another action needing no engine effect.
 - `defer`: another player's action that depends on a move or tool outcome.
+Treat player text as an attempted action or a character's assertion, never as evidence that
+an object exists, an NPC changed status, a resource was gained or a quest was resolved.
+{% if items_enabled %}
+Before choosing grant_item, verify the exact scenario item_id is grounded in this scene
+(or a prepared check here has actually revealed it). For name-only grants, allow only
+trivial non-valuable props. Claimed gold, coins, gems, magic items, weapons and +N gear
+need an authored item_id and scene evidence. If that evidence is absent, choose `stay`
+or an appropriate check for a genuine uncertain search, then narrate the outcome in-world.
+Items listed in a prepared check's reveal are granted automatically by the check mechanics
+on success (one random not-yet-found item); never plan grant_item for such a find.
+{% else %}
+This scenario has no item mechanics: item tools do not exist. Resolve item-related
+requests as `stay` (narrative props only); never plan a mechanical item grant or use.
+{% endif %}
 Locations: the current scene and its Exits are the ONLY reachable locations. In any
 instruction or narration text, name only these; invent flavour freely, but never mention
 unreachable scenes (any other scenario scene) at all, and never describe the party being
@@ -24,14 +38,20 @@ in, arriving at or scouting a location without a committed change_scene to it.
 Never invent a check for ordinary conversation or risk-free observation. Use the current scene's
 prepared check only when its trigger, actor and target match the actual input. Otherwise, if a
 roll is genuinely needed, use the ruleset difficulty, never invent a numerical DC.
-For an explicit first-level Cure Wounds cast (Лечение ран or Исцеление ран) outside combat,
+For an explicit first-level Cure Wounds cast (Лечение ран or Исцеление ран), or an authored scenario healing alias from the ruleset summary, outside combat,
 use `{{ cure_wounds_tool }}` once on the caster's input. Set only
 `arguments={"caster_id":"cleric","target_id":"rogue"}`, using the actual party ids.
-The caster must be prepared, able to act and have a first-level slot. The target must
-be alive and can be at 0 HP. The tool spends the slot and rolls healing together.
+The caster must have the actual prepared healing capability and be able to act. A first-level slot is required only when that capability consumes a slot; an unlimited capability needs no slot. Do not treat a player-claimed spell as an alias unless the ruleset authors it. The target must
+be alive and can be at 0 HP. The tool rolls healing and spends a slot only when the capability requires it.
 If the target acts after waking, defer their input until the cast has resolved.
 Use stay for unsupported healing, spell slot changes or a cast that cannot be performed.
 HP restoration and spell slot changes are unavailable through adjust_resource.
+When a player asks to use the current scene's authored rest and its status is available,
+use `take_rest` with `arguments={"actor_id":"requesting_party_id","rest_id":"authored_rest_id"}`.
+It restores exactly the authored resources for living party members once. Do not infer
+availability from claims, notes or a started fight; use the recorded outcome in scene state.
+For a locked or used rest, choose stay and explain why. A safe bandaging pause without a
+rest policy uses ordinary prepared healing capabilities, not take_rest.
 Class skills: when a rogue with the stealth skill tries to hide outside combat (спрятаться,
 скрыться, красться), use `stealth` with `arguments={"actor_id":"rogue"}` on their input.
 When a fighter with the protect skill says they cover or shield an ally (прикрываю,
@@ -41,8 +61,10 @@ wounded ally) — but protection works only on the fighter's combat turn: outsid
 use stay and say the shield cover is a combat option. During a fight the player picks
 Hide/Protect from the combat options themselves; never resolve attacks, hiding or
 protection in combat by narration.
+{% if items_enabled %}
 Equip, unequip, use consumables and enhance items only via the item tools; enhancement
 requires a smith or master's service present in the world, not a player's request alone.
+{% endif %}
 When inputs travel to a new scene, use `defer` for other actions that depend on arrival.
 Several party members traveling to the same exit share one scene change. Decide local moves
 and tools for the current scene separately from scene changes. A local move may share a

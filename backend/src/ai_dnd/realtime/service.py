@@ -203,6 +203,8 @@ def _player_seat_from_character(
     except SheetValuesError as error:
         raise SessionError(422, "character_invalid") from error
     class_id = character_data.class_id
+    if class_id not in content.classes:
+        raise SessionError(422, "class_not_available")
     actor_id = f"pc_{character.id.hex}"
     display = str(sheet.values.get("name") or character.name)
     granted, cure_wounds = class_grants(content.classes, content.skills, class_id, sheet)
@@ -256,7 +258,11 @@ async def create_session(
         _require_character_owner(character, user)
     ruleset_id, template_id = await version_refs(sessions, body.scenario_version_id)
     setup = SessionSetup(
-        scenario=slug, language=content.language, improvisation=body.improvisation, seats=()
+        scenario=slug,
+        language=content.language,
+        improvisation=body.improvisation,
+        tone=body.tone,
+        seats=(),
     )
     actors: tuple[Actor, ...] = ()
     if character is not None:
@@ -267,6 +273,7 @@ async def create_session(
             scenario=slug,
             language=content.language,
             improvisation=body.improvisation,
+            tone=body.tone,
             seats=(player_seat,),
         )
         actors = (actor,)
@@ -389,18 +396,6 @@ async def join_session(
             sessions, row.scenario_version_id, settings.content_dir
         )
         actor, player_seat = _player_seat_from_character(content, character, setup)
-        try:
-            character_data = Character.model_validate(character.data)
-            sheet = build_sheet(character_data, content.template)
-        except TemplateMismatchError as error:
-            raise SessionError(409, "template_mismatch") from error
-        except SheetValuesError as error:
-            raise SessionError(422, "character_invalid") from error
-        # Сценарный блок «доступные классы»: пусто — все классы (обратная совместимость).
-        available = content.scenario.scenario.available_classes
-        if available and character_data.class_id not in available:
-            raise SessionError(422, "class_not_available")
-        actor_id = f"pc_{character.id.hex}"
         if setup.seat(player_seat.actor_id) is not None:
             raise SessionError(409, "character_taken")
         actor_id = player_seat.actor_id

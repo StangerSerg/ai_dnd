@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Own project icon: flat healing potion, round flask / red brew -->
+  <rect x="26" y="4" width="12" height="7" rx="2" fill="#8c6f4a"/>
+  <path d="M27 11h10v8l8 10a17 17 0 1 1-26 0l8-10z" fill="#cfd6dd"/>
+  <path d="M20.5 33a13.5 13.5 0 1 0 23 0c-4 2.6-7.6 3.8-11.5 3.8S24.5 35.6 20.5 33z" fill="#b0563f"/>
+  <path d="M20.5 33a13.5 13.5 0 0 0 11.5 20.5V36.8c-3.9 0-7.5-1.2-11.5-3.8z" fill="#c96a4f"/>
+  <circle cx="27" cy="44" r="2.2" fill="#e8927c"/>
+  <rect x="25" y="11" width="14" height="3.4" rx="1.7" fill="#c8a56a"/>
+</svg>

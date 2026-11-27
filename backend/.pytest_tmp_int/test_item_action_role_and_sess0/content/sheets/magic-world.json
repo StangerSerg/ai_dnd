@@ -1,0 +1,503 @@
+{
+  "id": "magic-world",
+  "version": 1,
+  "name": {
+    "ru": "Карточка мага мира"
+  },
+  "ruleset": "magic-world@1",
+  "fields": [
+    {
+      "id": "name",
+      "type": "text",
+      "label": {
+        "ru": "Имя"
+      }
+    },
+    {
+      "id": "race",
+      "type": "text",
+      "label": {
+        "ru": "Происхождение"
+      }
+    },
+    {
+      "id": "char_class",
+      "type": "text",
+      "label": {
+        "ru": "Призвание"
+      },
+      "default": "Маг мира"
+    },
+    {
+      "id": "portrait",
+      "type": "image",
+      "label": {
+        "ru": "Портрет"
+      }
+    },
+    {
+      "id": "str",
+      "type": "number",
+      "label": {
+        "ru": "Физическая сила"
+      },
+      "default": 10,
+      "min": 1,
+      "max": 30
+    },
+    {
+      "id": "str_mod",
+      "type": "computed",
+      "label": {
+        "ru": "Бонус: Физическая сила"
+      },
+      "formula": "floor((str - 10) / 2)"
+    },
+    {
+      "id": "dex",
+      "type": "number",
+      "label": {
+        "ru": "Подвижность"
+      },
+      "default": 12,
+      "min": 1,
+      "max": 30
+    },
+    {
+      "id": "dex_mod",
+      "type": "computed",
+      "label": {
+        "ru": "Бонус: Подвижность"
+      },
+      "formula": "floor((dex - 10) / 2)"
+    },
+    {
+      "id": "con",
+      "type": "number",
+      "label": {
+        "ru": "Стойкость"
+      },
+      "default": 12,
+      "min": 1,
+      "max": 30
+    },
+    {
+      "id": "con_mod",
+      "type": "computed",
+      "label": {
+        "ru": "Бонус: Стойкость"
+      },
+      "formula": "floor((con - 10) / 2)"
+    },
+    {
+      "id": "int",
+      "type": "number",
+      "label": {
+        "ru": "Познание магии"
+      },
+      "default": 14,
+      "min": 1,
+      "max": 30
+    },
+    {
+      "id": "int_mod",
+      "type": "computed",
+      "label": {
+        "ru": "Бонус: Познание магии"
+      },
+      "formula": "floor((int - 10) / 2)"
+    },
+    {
+      "id": "wis",
+      "type": "number",
+      "label": {
+        "ru": "Чутьё мира"
+      },
+      "default": 10,
+      "min": 1,
+      "max": 30
+    },
+    {
+      "id": "wis_mod",
+      "type": "computed",
+      "label": {
+        "ru": "Бонус: Чутьё мира"
+      },
+      "formula": "floor((wis - 10) / 2)"
+    },
+    {
+      "id": "cha",
+      "type": "number",
+      "label": {
+        "ru": "Влияние"
+      },
+      "default": 10,
+      "min": 1,
+      "max": 30
+    },
+    {
+      "id": "cha_mod",
+      "type": "computed",
+      "label": {
+        "ru": "Бонус: Влияние"
+      },
+      "formula": "floor((cha - 10) / 2)"
+    },
+    {
+      "id": "ac",
+      "type": "computed",
+      "label": {
+        "ru": "Магическая защита (включает Ледяной щит +2)"
+      },
+      "formula": "13 + dex_mod"
+    },
+    {
+      "id": "initiative",
+      "type": "computed",
+      "label": {
+        "ru": "Инициатива"
+      },
+      "formula": "dex_mod"
+    },
+    {
+      "id": "hp",
+      "type": "resource",
+      "label": {
+        "ru": "Жизненная сила"
+      },
+      "max_formula": "26 + con_mod"
+    },
+    {
+      "id": "spell_ability",
+      "type": "select",
+      "label": {
+        "ru": "Основа водного лечения"
+      },
+      "options": [
+        {
+          "value": "int",
+          "label": {
+            "ru": "Познание магии"
+          }
+        }
+      ],
+      "default": "int"
+    },
+    {
+      "id": "spell_mod",
+      "type": "computed",
+      "label": {
+        "ru": "Бонус водного лечения"
+      },
+      "formula": "int_mod"
+    },
+    {
+      "id": "attacks",
+      "type": "list",
+      "label": {
+        "ru": "Боевые формы магии"
+      },
+      "item": {
+        "name": {
+          "type": "text",
+          "label": {
+            "ru": "Форма"
+          }
+        },
+        "bonus": {
+          "type": "number",
+          "label": {
+            "ru": "Бонус атаки"
+          }
+        },
+        "damage": {
+          "type": "text",
+          "label": {
+            "ru": "Урон"
+          }
+        },
+        "damage_type": {
+          "type": "text",
+          "label": {
+            "ru": "Стихия урона"
+          }
+        },
+        "notes": {
+          "type": "text",
+          "label": {
+            "ru": "Действие"
+          }
+        }
+      }
+    },
+    {
+      "id": "features",
+      "type": "longtext",
+      "label": {
+        "ru": "Освоенные формы и особенности"
+      },
+      "default": "Огонь, воздух и вода доступны сразу. Ледяной щит постоянно даёт +2 к магической защите (учтён в показателе)."
+    },
+    {
+      "id": "notes",
+      "type": "longtext",
+      "label": {
+        "ru": "Заметки"
+      }
+    }
+  ],
+  "layout": [
+    {
+      "section": {
+        "ru": "Маг мира"
+      },
+      "cols": 4,
+      "items": [
+        "portrait",
+        "name",
+        "race",
+        "char_class"
+      ]
+    },
+    {
+      "section": {
+        "ru": "Качества"
+      },
+      "cols": 6,
+      "items": [
+        "str",
+        "str_mod",
+        "dex",
+        "dex_mod",
+        "con",
+        "con_mod",
+        "int",
+        "int_mod",
+        "wis",
+        "wis_mod",
+        "cha",
+        "cha_mod"
+      ]
+    },
+    {
+      "section": {
+        "ru": "Бой и магия"
+      },
+      "cols": 4,
+      "items": [
+        "hp",
+        "ac",
+        "initiative",
+        "attacks",
+        "spell_ability",
+        "spell_mod"
+      ]
+    },
+    {
+      "section": {
+        "ru": "Особенности"
+      },
+      "cols": 1,
+      "items": [
+        "features",
+        "notes"
+      ]
+    }
+  ],
+  "bindings": {
+    "checks": {
+      "str": {
+        "label": {
+          "ru": "Физическая сила"
+        },
+        "bonus": "str_mod"
+      },
+      "dex": {
+        "label": {
+          "ru": "Подвижность"
+        },
+        "bonus": "dex_mod"
+      },
+      "con": {
+        "label": {
+          "ru": "Стойкость"
+        },
+        "bonus": "con_mod"
+      },
+      "int": {
+        "label": {
+          "ru": "Познание магии"
+        },
+        "bonus": "int_mod"
+      },
+      "wis": {
+        "label": {
+          "ru": "Чутьё мира"
+        },
+        "bonus": "wis_mod"
+      },
+      "cha": {
+        "label": {
+          "ru": "Влияние"
+        },
+        "bonus": "cha_mod"
+      },
+      "acrobatics": {
+        "label": {
+          "ru": "Ловкое движение"
+        },
+        "bonus": "dex_mod"
+      },
+      "animal_handling": {
+        "label": {
+          "ru": "Общение с существами"
+        },
+        "bonus": "wis_mod"
+      },
+      "arcana": {
+        "label": {
+          "ru": "Плетение магии"
+        },
+        "bonus": "int_mod"
+      },
+      "athletics": {
+        "label": {
+          "ru": "Физическое усилие"
+        },
+        "bonus": "str_mod"
+      },
+      "deception": {
+        "label": {
+          "ru": "Обман"
+        },
+        "bonus": "cha_mod"
+      },
+      "history": {
+        "label": {
+          "ru": "Память о мире"
+        },
+        "bonus": "int_mod"
+      },
+      "insight": {
+        "label": {
+          "ru": "Понимание намерений"
+        },
+        "bonus": "wis_mod"
+      },
+      "intimidation": {
+        "label": {
+          "ru": "Угроза"
+        },
+        "bonus": "cha_mod"
+      },
+      "investigation": {
+        "label": {
+          "ru": "Исследование"
+        },
+        "bonus": "int_mod"
+      },
+      "medicine": {
+        "label": {
+          "ru": "Помощь раненому"
+        },
+        "bonus": "wis_mod"
+      },
+      "nature": {
+        "label": {
+          "ru": "Природа стихий"
+        },
+        "bonus": "int_mod"
+      },
+      "perception": {
+        "label": {
+          "ru": "Внимательность"
+        },
+        "bonus": "wis_mod"
+      },
+      "performance": {
+        "label": {
+          "ru": "Выступление"
+        },
+        "bonus": "cha_mod"
+      },
+      "persuasion": {
+        "label": {
+          "ru": "Убеждение"
+        },
+        "bonus": "cha_mod"
+      },
+      "religion": {
+        "label": {
+          "ru": "Предания мира"
+        },
+        "bonus": "int_mod"
+      },
+      "sleight_of_hand": {
+        "label": {
+          "ru": "Ловкость рук"
+        },
+        "bonus": "dex_mod"
+      },
+      "stealth": {
+        "label": {
+          "ru": "Скрытность"
+        },
+        "bonus": "dex_mod"
+      },
+      "survival": {
+        "label": {
+          "ru": "Жизнь в дикой природе"
+        },
+        "bonus": "wis_mod"
+      }
+    },
+    "saves": {
+      "str": {
+        "label": {
+          "ru": "Сопротивление: Физическая сила"
+        },
+        "bonus": "str_mod"
+      },
+      "dex": {
+        "label": {
+          "ru": "Сопротивление: Подвижность"
+        },
+        "bonus": "dex_mod"
+      },
+      "con": {
+        "label": {
+          "ru": "Сопротивление: Стойкость"
+        },
+        "bonus": "con_mod"
+      },
+      "int": {
+        "label": {
+          "ru": "Сопротивление: Познание магии"
+        },
+        "bonus": "int_mod"
+      },
+      "wis": {
+        "label": {
+          "ru": "Сопротивление: Чутьё мира"
+        },
+        "bonus": "wis_mod"
+      },
+      "cha": {
+        "label": {
+          "ru": "Сопротивление: Влияние"
+        },
+        "bonus": "cha_mod"
+      }
+    },
+    "hp": "hp",
+    "ac": "ac",
+    "initiative": "initiative",
+    "attacks": {
+      "field": "attacks",
+      "name": "name",
+      "bonus": "bonus",
+      "damage": "damage",
+      "damage_type": "damage_type"
+    }
+  }
+}

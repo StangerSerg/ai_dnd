@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Own project icon: flat heater shield, gold rim / dark field -->
+  <path d="M32 4l24 7v18c0 14-9 25-24 31C17 54 8 43 8 29V11z" fill="#c8a56a"/>
+  <path d="M32 9l19 5.6V29c0 11.4-7.2 20.6-19 25.8C20.2 49.6 13 40.4 13 29V14.6z" fill="#2c3126"/>
+  <path d="M32 9l19 5.6V29c0 11.4-7.2 20.6-19 25.8z" fill="#23271f"/>
+  <path d="M32 16l4.7 9.5 10.5 1.5-7.6 7.4 1.8 10.4L32 39.9l-9.4 4.9 1.8-10.4-7.6-7.4 10.5-1.5z" fill="#f2cf8e"/>
+</svg>

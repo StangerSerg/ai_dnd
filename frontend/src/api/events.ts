@@ -74,6 +74,10 @@ export interface AttackProfile {
   bonus: number
   damage?: string | null
   damage_type?: string | null
+  /** Id сценарного боеприпаса: 1 за попытку атаки, включая промах (подэтап 4b). */
+  ammo?: string | null
+  /** Метательный предмет тратит сам себя из стека (подэтап 4b). */
+  thrown_item?: string | null
 }
 
 export interface ActorState {
@@ -229,6 +233,14 @@ export interface Rested extends EventBase {
   actor_ids: string[]
 }
 
+export interface RestTaken extends EventBase {
+  type: 'RestTaken'
+  rest_id: string
+  name: string
+  actor_ids: string[]
+  resources: string[]
+}
+
 export interface CombatStarted extends EventBase {
   type: 'CombatStarted'
   sides: Record<string, string>
@@ -346,6 +358,8 @@ export interface ItemEquipped extends EventBase {
   slot: ItemSlot
   /** Имя предмета, снятого с этого слота (остаётся в рюкзаке). */
   replaced: string | null
+  /** Атака сценарного оружия; отсутствует в журналах до подэтапа 4b. */
+  attack?: AttackProfile | null
 }
 
 export interface ItemUnequipped extends EventBase {
@@ -363,6 +377,16 @@ export interface ItemUsed extends EventBase {
   effect: ItemUseKind
   rounds: number | null
   spell: string | null
+}
+
+/** Единое событие расхода (подэтап 4b): пишется до эффекта, quantity >= 1. */
+export interface ItemSpent extends EventBase {
+  type: 'ItemSpent'
+  actor_id: string
+  item_id: string
+  name: string
+  quantity: number
+  trigger: 'use' | 'attack' | 'throw' | 'spend'
 }
 
 export interface ItemEnhanced extends EventBase {
@@ -412,6 +436,7 @@ export type JournalEvent =
   | ConditionRemoved
   | TimePassed
   | Rested
+  | RestTaken
   | CombatStarted
   | RoundStarted
   | TurnStarted
@@ -432,6 +457,7 @@ export type JournalEvent =
   | ItemEquipped
   | ItemUnequipped
   | ItemUsed
+  | ItemSpent
   | ItemEnhanced
   | FactNoted
   | ActorsJoined
@@ -491,9 +517,9 @@ export function isJournalEntry(message: RoomMessage): message is JournalEntry {
 export const STATE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'ActorsJoined', 'ItemGranted', 'SceneChanged', 'Revealed', 'NpcAttitudeChanged', 'NpcMoved',
   'NpcDied',
-  'ItemEquipped', 'ItemUnequipped', 'ItemUsed', 'ItemEnhanced',
+  'ItemEquipped', 'ItemUnequipped', 'ItemUsed', 'ItemSpent', 'ItemEnhanced',
   'DamageDealt', 'Healed', 'ActorDied', 'ActorFled', 'ResourceChanged',
-  'ConditionApplied', 'ConditionRemoved', 'Rested', 'TimePassed',
+  'ConditionApplied', 'ConditionRemoved', 'Rested', 'RestTaken', 'TimePassed',
   'CombatStarted', 'CombatEnded', 'RoundStarted', 'TurnStarted', 'TurnEnded', 'TurnSlotUsed',
   'ProtectionStarted', 'ProtectionEnded', 'PartyDefeated',
 ])
@@ -502,6 +528,8 @@ export const COMBAT_REFETCH_TYPES: ReadonlySet<string> = new Set([
   'EncounterStarted', 'CombatStarted', 'CombatEnded', 'DiceRolled', 'CheckResolved',
   'AttackResolved', 'RoundStarted', 'TurnStarted', 'TurnEnded', 'ActorDied', 'ActorFled',
   'ProtectionStarted', 'ProtectionEnded',
+  // Расход боеприпаса меняет доступные атаки — опции перечитываются.
+  'ItemSpent',
 ])
 
 /** Состояния, блокирующие команды (ruleset dnd5e-srd: prevents_actions). */

@@ -26,7 +26,8 @@ from ai_dnd.realtime.router import build_router as build_sessions_router
 from ai_dnd.realtime.turns import build_turns_router
 from ai_dnd.realtime.ws import build_ws_router
 from ai_dnd.resources import Resources, get_resources
-from ai_dnd.scenarios.router import build_scenarios_router
+from ai_dnd.scenarios.authoring import build_authoring_router
+from ai_dnd.scenarios.router import build_item_icons_router, build_scenarios_router
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +86,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_turns_router(identity_get_current_user))
     app.include_router(build_characters_router(identity_get_current_user))
     app.include_router(build_scenarios_router(identity_get_current_user))
+    app.include_router(build_item_icons_router(identity_get_current_user))
+    app.include_router(build_authoring_router(identity_get_current_user))
     app.include_router(build_admin_router(identity_get_current_user))
     app.include_router(build_supervision_router(identity_get_current_user))
     app.include_router(build_ops_router(identity_get_current_user))

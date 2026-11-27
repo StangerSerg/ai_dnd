@@ -6,6 +6,7 @@
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Literal, Protocol
 
 from ai_dnd.ai.schemas import Message, ToolCall, ToolChoice, ToolSpec, Usage
@@ -14,9 +15,13 @@ from ai_dnd.ai.schemas import Message, ToolCall, ToolChoice, ToolSpec, Usage
 class LLMError(Exception):
     """Вызов модели не удался. ``code`` — короткая причина для журнала и интерфейса."""
 
-    def __init__(self, code: str, detail: str = "") -> None:
+    def __init__(
+        self, code: str, detail: str = "", *, confirmed_cost: Decimal | None = None
+    ) -> None:
         self.code = code
         self.detail = detail
+        # None означает неизвестный расход; даже нулевой подтверждённый расход отличен.
+        self.confirmed_cost = confirmed_cost
         super().__init__(f"{code}: {detail}" if detail else code)
 
 

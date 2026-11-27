@@ -24,7 +24,7 @@ export type SessionSummary = Schemas['SessionListItem'] & {
 }
 export type SessionPreview = Schemas['SessionPreviewResponse']
 export type ScenarioSummary = Schemas['ScenarioListItem']
-export type CharacterSummary = Schemas['CharacterListItem']
+export type CharacterSummary = Schemas['CharacterListItem'] & { class_id?: string | null }
 export type CreateCharacterRequest = Schemas['CreateCharacterRequest']
 export type UpdateCharacterRequest = Schemas['UpdateCharacterRequest']
 export type CombatOption = Schemas['CombatOptionOut']
@@ -112,6 +112,9 @@ export const portal = {
     request<SessionPreview>(`/api/sessions/by-invite/${encode(inviteToken)}`),
 
   listScenarios: (): Promise<ScenarioSummary[]> => request<ScenarioSummary[]>('/api/scenarios'),
+
+  scenarioClasses: (versionId: string): Promise<string[]> =>
+    request<string[]>(`/api/characters/classes?scenario_version_id=${encode(versionId)}`),
 
   listCharacters: (): Promise<CharacterSummary[]> => request<CharacterSummary[]>('/api/characters'),
 

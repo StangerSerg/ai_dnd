@@ -5,6 +5,7 @@
     "nav": {
       "games": "My Games",
       "characters": "My Characters",
+      "items": "Items",
       "profile": "Profile",
       "demo": "Demo",
       "login": "Sign in"
@@ -439,6 +440,7 @@
       "unconscious": "Unconscious"
     },
     "skills": {
+      "water_healing": "Water Healing",
       "cure_wounds": "Cure Wounds",
       "stealth": "Stealth",
       "protect": "Protect"
@@ -548,6 +550,7 @@
         "buffRounds": "{{actor}} uses: {{name}} (effect for {{rounds}} round(s))",
         "spell": "{{actor}} uses: {{name}} — spell “{{spell}}”"
       },
+      "itemSpent": "{{actor}} spends: {{name}}",
       "itemEnhanced": "{{actor}}: {{name}} is enhanced to +{{enhancement}}",
       "itemSlot": {
         "weapon": "weapon",
@@ -597,6 +600,11 @@
       "rested": {
         "short": "Short rest: {{actors}}",
         "long": "Long rest: {{actors}}"
+      },
+      "restTaken": "Rest completed — {{name}}. Participants: {{actors}}.",
+      "restResource": {
+        "hp": "HP",
+        "spell_slots_1": "1st-level spell slots"
       }
     },
     "outcome": {
@@ -676,6 +684,43 @@
     },
     "sheet": {
       "computed": "computed by a server-side formula"
+    },
+    "items": {
+      "title": "Gear",
+      "equipment": "Equipped",
+      "inventory": "Backpack",
+      "emptySlot": "Empty",
+      "emptyInventory": "The backpack is empty — items will appear as the story unfolds.",
+      "equip": "Equip",
+      "unequip": "Unequip",
+      "use": "Use",
+      "spend": "Spend",
+      "quantity": "Quantity",
+      "target": "Target",
+      "noTargets": "No living targets",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "combatHint": "Items are unavailable in combat — use combat actions.",
+      "catalogLoading": "Loading items…",
+      "catalogError": "Failed to load the item catalog.",
+      "errors": {
+        "players_only": "Item actions are available to players only.",
+        "no_seat": "You have no seat at this table.",
+        "incapacitated": "The hero is incapacitated and cannot act.",
+        "session_stopped": "The table was stopped by the host.",
+        "no_scenario": "The session has no pinned scenario.",
+        "items_disabled": "Item mechanics are disabled for this table.",
+        "combat_active": "Items are unavailable in combat — use combat actions.",
+        "turn_in_progress": "A turn is in progress — try again in a moment.",
+        "item_has_no_slot": "This item cannot be equipped.",
+        "item_not_equipped": "The item is not equipped.",
+        "item_not_consumable": "This item cannot be used.",
+        "use_item_required": "This action requires a usable item.",
+        "item_cannot_repair": "This item cannot repair.",
+        "repair_target_required": "Choose a repair target.",
+        "insufficient_quantity": "Not enough items in the stack.",
+        "network": "Network error — please retry."
+      }
     }
   },
   "characters": {
@@ -700,10 +745,14 @@
     "level": "Level",
     "class": {
       "label": "Class",
+      "world_mage": "World Mage",
       "fighter": "Fighter",
       "rogue": "Rogue",
       "cleric": "Cleric",
       "ranger": "Ranger",
+      "ship_striker": "Striker",
+      "ship_scout": "Scout",
+      "ship_tender": "Tender",
       "scenarioHint": "The table's scenario limits the choice: only available classes are shown."
     },
     "race": {
@@ -728,6 +777,8 @@
     "errors": {
       "empty_name": "Enter the character name",
       "scenario_version_not_found": "Scenario version not found",
+      "class_not_available": "Class is unavailable in this scenario",
+      "class_archetype_not_found": "No ready character sheet for this class",
       "sheet_template_not_found": "Card template not found",
       "character_invalid": "Character card has validation errors",
       "invalid_portrait": "Invalid avatar: pick one of the presets",
@@ -738,7 +789,110 @@
     },
     "generate": "Generate",
     "tableContextHint": "This character is for the table you were invited to: the scenario is already pinned. After creation you will return to the table and be seated.",
-    "tableContextBanner": "Creating a character for the table: the scenario is pinned by the invite; after creation you return and are seated automatically."
+    "tableContextBanner": "Creating a character for the table: the scenario is pinned by the invite; after creation you return and are seated automatically.",
+    "items": {
+      "title": "Scenario items",
+      "hint": "Edit items of your own scenarios: mechanics, icons and the recognition report. Saving publishes a new version.",
+      "scenario": "Scenario",
+      "noScenarios": "You don't have any scenarios of your own yet.",
+      "listTitle": "Items",
+      "empty": "This scenario version has no items.",
+      "edit": "Edit",
+      "editTitle": "Edit: {{name}}",
+      "mechanicsTitle": "Mechanics",
+      "fields": {
+        "name": "Name",
+        "description": "Description",
+        "visibility": "Visibility",
+        "kind": "Kind",
+        "slot": "Slot",
+        "quantity": "Quantity",
+        "enhancement": "Enhancement (0–3)",
+        "acBonus": "AC bonus",
+        "damageBonus": "Damage bonus",
+        "damageType": "Damage type",
+        "repairHp": "Repair (HP)",
+        "consumeOn": "Consume on",
+        "ammo": "Ammo (item id)",
+        "consumableEffect": "Use effect",
+        "healAmount": "Heal (formula)",
+        "buffRounds": "Duration (rounds)",
+        "buffEffects": "Buff effects (JSON)",
+        "spell": "Spell",
+        "attack": "Attack",
+        "attackName": "Attack name",
+        "attackBonus": "Attack bonus",
+        "attackDamage": "Damage (formula)",
+        "attackDamageType": "Attack damage type",
+        "modifiers": "Modifiers (JSON)",
+        "icon": "Icon"
+      },
+      "kind": {
+        "weapon": "Weapon",
+        "armor": "Armor",
+        "wearable": "Wearable",
+        "consumable": "Consumable",
+        "other": "Other"
+      },
+      "visibility": {
+        "public": "Public",
+        "dm": "DM only"
+      },
+      "none": "None",
+      "consumeOn": {
+        "use": "Use",
+        "attack": "Attack",
+        "throw": "Throw",
+        "spend": "Spend"
+      },
+      "effectType": {
+        "heal": "Heal",
+        "buff": "Buff",
+        "spell": "Spell"
+      },
+      "iconNone": "No icon",
+      "attackHint": "Empty name means no attack (reset to null).",
+      "modifiersHint": "Array of Effect objects: applies_to, only, mode, bonus, auto_fail.",
+      "newVersionHint": "Saving publishes a new scenario version; running sessions stay on the previous version.",
+      "savedHint": "Saved: a new scenario version was created. Running sessions stay on the previous version.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "validation": {
+        "nameRequired": "Item name is required.",
+        "quantity": "Quantity must be an integer ≥ 1.",
+        "enhancement": "Enhancement must be an integer 0–3.",
+        "integer": "Expected an integer.",
+        "invalidJson": "Invalid JSON: expected an array of effect objects.",
+        "healAmount": "Heal formula is required.",
+        "spell": "Spell name is required."
+      },
+      "errors": {
+        "invalid_item": "The item failed validation — see the list below.",
+        "invalid_scenario": "The scenario failed validation — see the list below.",
+        "not_scenario_author": "This scenario belongs to another author.",
+        "item_not_found": "Item not found in the current version."
+      },
+      "issueCodes": {},
+      "issuesTitle": "Report: recognized / in question",
+      "issuesEmpty": "All items are recognized — no questions.",
+      "encountersTitle": "Monster sets",
+      "encountersEmpty": "The scenario has no encounters.",
+      "creatures": "Creatures",
+      "loot": "Loot",
+      "chance": "{{percent}}% chance",
+      "mechanics": {
+        "ac": "AC +{{value}}",
+        "damage": "Damage +{{value}}",
+        "heal": "Heal {{amount}}",
+        "buff": "Buff",
+        "spell": "Spell: {{spell}}",
+        "attack": "Attack: {{name}}",
+        "repair": "Repair {{value}} HP",
+        "ammo": "Ammo: {{name}}",
+        "narrative": "Narrative"
+      }
+    }
   },
   "demo": {
     "title": "Codex Demo",

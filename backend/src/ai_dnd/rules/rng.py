@@ -7,8 +7,10 @@
 
 import random
 import secrets
-from collections.abc import Iterable
-from typing import Protocol
+from collections.abc import Iterable, Sequence
+from typing import Protocol, TypeVar
+
+_T = TypeVar("_T")
 
 
 class Rng(Protocol):
@@ -16,6 +18,10 @@ class Rng(Protocol):
 
     def randint(self, low: int, high: int) -> int:
         """Случайное целое из отрезка [low, high], границы включены."""
+        ...
+
+    def choice(self, options: Sequence[_T]) -> _T:
+        """Случайный элемент непустой последовательности."""
         ...
 
 
@@ -28,6 +34,13 @@ class SystemRng:
     def randint(self, low: int, high: int) -> int:
         return self._random.randint(low, high)
 
+    def choice(self, options: Sequence[_T]) -> _T:
+        if not options:
+            raise ValueError("choice из пустой последовательности")
+        if len(options) == 1:
+            return options[0]
+        return options[self.randint(0, len(options) - 1)]
+
 
 class SeededRng:
     """Повторяемый генератор: один и тот же seed даёт одну и ту же последовательность."""
@@ -38,6 +51,14 @@ class SeededRng:
 
     def randint(self, low: int, high: int) -> int:
         return self._random.randint(low, high)
+
+    def choice(self, options: Sequence[_T]) -> _T:
+        if not options:
+            raise ValueError("choice из пустой последовательности")
+        # Единственный вариант не тратит бросок: находка гарантирована.
+        if len(options) == 1:
+            return options[0]
+        return options[self.randint(0, len(options) - 1)]
 
 
 class RngExhaustedError(RuntimeError):
@@ -72,3 +93,10 @@ class ScriptedRng:
             )
         self._position += 1
         return value
+
+    def choice(self, options: Sequence[_T]) -> _T:
+        if not options:
+            raise ValueError("choice из пустой последовательности")
+        if len(options) == 1:
+            return options[0]
+        return options[self.randint(0, len(options) - 1)]

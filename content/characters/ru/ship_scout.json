@@ -27,7 +27,7 @@
     "spares": {"current": 2, "max": 2},
     "attacks": [
       {"name": "Лазерная установка Л-2", "bonus": 5, "damage": "1d6+4", "damage_type": "laser", "notes": "основной калибр, безлимитный"},
-      {"name": "Ракетная установка Р-40", "bonus": 5, "damage": "2d6", "damage_type": "missile", "notes": "расходует ракеты"}
+      {"name": "Ракетная установка Р-40", "bonus": 5, "damage": "2d6", "damage_type": "missile", "ammo_resource": "missiles", "notes": "расходует ракеты"}
     ],
     "cargo": [
       {"name": "Глушитель сигнатур", "qty": 1, "notes": "встроен; в v0.2 — модуль слота masking"}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -18,9 +18,6 @@ import '@/game/game.css'
 
 const selectClass = 'h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 outline-none'
 
-// Beta: class archetypes pinned by the backend (content/characters/<lang>/<class>.json).
-const CHARACTER_CLASSES = ['fighter', 'rogue', 'cleric', 'ranger'] as const
-type CharacterClass = (typeof CHARACTER_CLASSES)[number]
 // Cosmetic SRD races; the picked label overrides the archetype's race text.
 const CHARACTER_RACES = ['human', 'elf', 'dwarf', 'halfling', 'half-elf', 'half-orc', 'gnome', 'dragonborn', 'tiefling'] as const
 
@@ -49,7 +46,7 @@ function CreateCharacterDialog({ tableContext }: { tableContext?: TableContext }
   const [open, setOpen] = useState(Boolean(tableContext))
   const [name, setName] = useState('')
   const [versionId, setVersionId] = useState(tableContext?.scenarioVersionId ?? '')
-  const [charClass, setCharClass] = useState<CharacterClass>('fighter')
+  const [charClass, setCharClass] = useState('')
   const [race, setRace] = useState('')
   const [portrait, setPortrait] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -69,17 +66,13 @@ function CreateCharacterDialog({ tableContext }: { tableContext?: TableContext }
   })
   const contextTitle = contextScenario?.title ?? previewQuery.data?.scenario_title ?? tableContext?.scenarioVersionId
 
-  // Сценарный блок «доступные классы» (v0.2): превью стола несёт список id;
-  // пусто/отсутствует — доступны все бета-классы (обратная совместимость).
-  const scenarioClasses = previewQuery.data?.available_classes
-  const allowedClasses = useMemo(() => {
-    const allowed = (scenarioClasses ?? []).filter((value): value is CharacterClass =>
-      (CHARACTER_CLASSES as readonly string[]).includes(value))
-    return allowed.length > 0 ? allowed : [...CHARACTER_CLASSES]
-  }, [scenarioClasses])
-  useEffect(() => {
-    if (!allowedClasses.includes(charClass)) setCharClass(allowedClasses[0])
-  }, [allowedClasses, charClass])
+  const classesQuery = useQuery({
+    queryKey: ['scenario-classes', versionId],
+    queryFn: () => portal.scenarioClasses(versionId),
+    enabled: open && Boolean(versionId) && !tableContext,
+  })
+  const allowedClasses = tableContext ? (previewQuery.data?.available_classes ?? []) : (classesQuery.data ?? [])
+  const selectedClass = allowedClasses.includes(charClass) ? charClass : (allowedClasses[0] ?? '')
 
   const mutation = useMutation({
     mutationFn: portal.createCharacter,
@@ -87,7 +80,7 @@ function CreateCharacterDialog({ tableContext }: { tableContext?: TableContext }
       setOpen(false)
       setName('')
       setVersionId(tableContext?.scenarioVersionId ?? '')
-      setCharClass('fighter')
+      setCharClass('')
       setRace('')
       setPortrait(null)
       setError(null)
@@ -110,10 +103,11 @@ function CreateCharacterDialog({ tableContext }: { tableContext?: TableContext }
       setError(t('characters:validation.scenario'))
       return
     }
+    if (!selectedClass) return
     mutation.mutate({
       name: name.trim(),
       scenario_version_id: versionId,
-      char_class: charClass,
+      char_class: selectedClass,
       race: race ? t(`characters:race.${race}`) : null,
       portrait,
     })
@@ -174,17 +168,18 @@ function CreateCharacterDialog({ tableContext }: { tableContext?: TableContext }
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="character-class">{t('characters:class.label')}</Label>
-            <select id="character-class" className={selectClass} value={charClass}
-              onChange={event => setCharClass(event.target.value as CharacterClass)} data-testid="character-class-select">
+            <select id="character-class" className={selectClass} value={selectedClass}
+              onChange={event => setCharClass(event.target.value)} data-testid="character-class-select">
               {allowedClasses.map(value => (
-                <option key={value} value={value}>{t(`characters:class.${value}`)}</option>
+                <option key={value} value={value}>{t(`characters:class.${value}`, { defaultValue: value })}</option>
               ))}
             </select>
-            {scenarioClasses && scenarioClasses.length > 0 && (
+            {allowedClasses.length > 0 && (
               <p className="text-xs text-muted-foreground" data-testid="class-scenario-hint">{t('characters:class.scenarioHint')}</p>
             )}
+            {classesQuery.isError && !tableContext && <p role="alert" className="text-sm text-destructive-foreground">{errorText(classesQuery.error)}</p>}
           </div>
-          <div className="flex flex-col gap-2">
+          {!selectedClass.startsWith('ship_') && <div className="flex flex-col gap-2">
             <Label htmlFor="character-race">{t('characters:race.label')}</Label>
             <select id="character-race" className={selectClass} value={race}
               onChange={event => setRace(event.target.value)} data-testid="character-race-select">
@@ -193,11 +188,11 @@ function CreateCharacterDialog({ tableContext }: { tableContext?: TableContext }
                 <option key={value} value={value}>{t(`characters:race.${value}`)}</option>
               ))}
             </select>
-          </div>
+          </div>}
           <AvatarPicker value={portrait} onChange={setPortrait} />
           {error && <p className="text-sm text-destructive-foreground" role="alert" data-testid="create-character-error">{error}</p>}
           <DialogFooter>
-            <Button type="submit" disabled={mutation.isPending || (!tableContext && !hasCatalog && !scenariosQuery.isPending)}
+            <Button type="submit" disabled={mutation.isPending || !selectedClass || (!tableContext && !hasCatalog && !scenariosQuery.isPending)}
               data-testid="create-character-submit">{t('create')}</Button>
           </DialogFooter>
         </form>

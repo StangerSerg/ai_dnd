@@ -36,6 +36,7 @@ def draft_data() -> dict[str, Any]:
     return {
         "scenario": {
             "scenario": {
+                "class_pack": "fantasy-core",
                 "title": "Тестовый импорт",
                 "language": "ru",
                 "ruleset": "dnd5e-srd@1",

@@ -42,6 +42,8 @@ def import_system_prompt(language: str) -> str:
         "in the target section. Pick start_scene where the adventure begins; every scene "
         "must be reachable from it via exits; exits reference existing scenes only, never "
         "the scene itself.\n"
+        "- Leave scenario.class_pack unset; the import pipeline assigns its approved pack. "
+        "Do not use scenario.available_classes.\n"
         "- Scene checks: use only skill/save ids from the ruleset lists, exactly one of "
         "skill or save, and an integer dc. If the author gives no DC, choose 10 easy / "
         "13 medium / 15 hard / 18 very hard and record an assumption note. on_success/"

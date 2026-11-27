@@ -39,6 +39,7 @@ def actor_from_sheet(
             bonus=attack.bonus,
             damage=attack.damage,
             damage_type=attack.damage_type,
+            ammo_resource=attack.ammo_resource,
         )
         for position, attack in enumerate(sheet.attacks, start=1)
     }

@@ -1,0 +1,66 @@
+{
+  "id": "worms-space",
+  "version": 1,
+  "name": {"ru": "Черви: космический бой"},
+  "resolution": {"type": "roll_vs_target", "dice": "1d20", "critical_success": 20, "critical_failure": 1},
+  "difficulty": {"very_easy": 5, "easy": 10, "medium": 15, "hard": 20, "very_hard": 25, "nearly_impossible": 30},
+  "checks": {
+    "engines": {"label": {"ru": "Двигатели"}},
+    "sensors": {"label": {"ru": "Сенсоры"}},
+    "comms": {"label": {"ru": "Связь"}},
+    "hull": {"label": {"ru": "Корпус"}},
+    "systems": {"label": {"ru": "Бортовые системы"}},
+    "crew": {"label": {"ru": "Экипаж"}},
+    "piloting": {"label": {"ru": "Пилотирование"}, "ability": "engines"},
+    "evasion": {"label": {"ru": "Уклонение"}, "ability": "engines"},
+    "gunnery": {"label": {"ru": "Наводка"}, "ability": "sensors"},
+    "scanning": {"label": {"ru": "Сканирование"}, "ability": "sensors"},
+    "stealth": {"label": {"ru": "Маскировка"}, "ability": "sensors"},
+    "engineering": {"label": {"ru": "Инженерия"}, "ability": "systems"},
+    "negotiate": {"label": {"ru": "Переговоры"}, "ability": "comms"},
+    "command": {"label": {"ru": "Командование"}, "ability": "crew"}
+  },
+  "saves": {
+    "engines": {"label": {"ru": "Спасбросок Двигателей"}, "ability": "engines"},
+    "sensors": {"label": {"ru": "Спасбросок Сенсоров"}, "ability": "sensors"},
+    "comms": {"label": {"ru": "Спасбросок Связи"}, "ability": "comms"},
+    "hull": {"label": {"ru": "Спасбросок Корпуса"}, "ability": "hull"},
+    "systems": {"label": {"ru": "Спасбросок Бортовых систем"}, "ability": "systems"},
+    "crew": {"label": {"ru": "Спасбросок Экипажа"}, "ability": "crew"}
+  },
+  "damage_types": {
+    "laser": {"ru": "Лазерный"},
+    "missile": {"ru": "Ракетный"},
+    "plasma": {"ru": "Плазменный"},
+    "kinetic": {"ru": "Кинетический"},
+    "blast": {"ru": "Взрывной"},
+    "crush": {"ru": "Давление"},
+    "pierce": {"ru": "Жало"},
+    "acid": {"ru": "Кислота"}
+  },
+  "resources": {
+    "hull_hp": {"label": {"ru": "Целостность корпуса"}, "recovery": {"rest": "short", "amount": "half"}},
+    "missiles": {"label": {"ru": "Ракеты"}},
+    "torpedoes": {"label": {"ru": "Плазменные торпеды"}},
+    "spares": {"label": {"ru": "Запчасти"}}
+  },
+  "conditions": {
+    "blinded": {"label": {"ru": "Слепые сенсоры"}, "effects": [{"applies_to": "attacks", "mode": "disadvantage"}, {"applies_to": "attacks_against", "mode": "advantage"}]},
+    "hidden": {"label": {"ru": "В засаде"}, "effects": [{"applies_to": "attacks", "mode": "advantage"}, {"applies_to": "attacks_against", "mode": "disadvantage"}]},
+    "incapacitated": {"label": {"ru": "Выведен из строя"}, "prevents_actions": true},
+    "restrained": {"label": {"ru": "Опутан щупальцем"}, "effects": [{"applies_to": "attacks", "mode": "disadvantage"}, {"applies_to": "attacks_against", "mode": "advantage"}]},
+    "damaged_engines": {"label": {"ru": "Повреждены двигатели"}, "effects": [{"applies_to": "checks", "only": ["piloting", "evasion"], "mode": "disadvantage"}]},
+    "frightened": {"label": {"ru": "Деморализован"}, "effects": [{"applies_to": "checks", "mode": "disadvantage"}, {"applies_to": "attacks", "mode": "disadvantage"}]}
+  },
+  "combat": {
+    "enabled": true,
+    "initiative_dice": "1d20",
+    "turn": {"action": 1, "bonus_action": 1, "movement": 1},
+    "attack_dice": "1d20",
+    "critical_hit": 20,
+    "automatic_miss": 1,
+    "critical_damage": "double_dice",
+    "zero_hp": {"condition": "incapacitated", "creatures_die": true}
+  },
+  "summary": "Космические бои кораблей против Червей. Атака: бросок 1d20 + бонус наводки против КД цели (уклонение и защита). Урон по целостности корпуса (hp); при 0 корабль выведен из строя. Проверки корабля — по его системам: двигатели, сенсоры, связь, корпус, бортсистемы, экипаж. Критическое попадание при 20 на кости, автоматический промах при 1. Ресурсы: ракеты, плазменные торпеды, запчасти. Точность Червей из оригинальных записей переведена на d20: точность 1 — бонус +3, точность 3 — бонус +7."
+}

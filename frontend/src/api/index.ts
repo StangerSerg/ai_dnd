@@ -1,11 +1,20 @@
-import { request } from './client'
+import { ApiError, request } from './client'
 import type {
   ActionResponse,
+  AuthorItemsResponse,
+  AuthorScenario,
   Balance,
   CreateSessionRequest,
   CreateSessionResponse,
   CsrfToken,
   GameSession,
+  IssueInfo,
+  ItemActionRequest,
+  ItemActionResponse,
+  ItemCatalog,
+  ItemIconsResponse,
+  ItemUpdateRequest,
+  ItemUpdateResponse,
   JoinRequest,
   JoinResponse,
   LoginRequest,
@@ -46,6 +55,66 @@ export const api = {
     }),
   triggerTurn: (id: string) =>
     request<TurnTriggerResponse>(`/api/sessions/${encodeURIComponent(id)}/turn`, { method: 'POST' }),
+  // --- Предметы (подэтап 7): каталог для куклы, действия игрока, иконки ---
+  getItemCatalog: (id: string) =>
+    request<ItemCatalog>(`/api/sessions/${encodeURIComponent(id)}/item-catalog`),
+  itemAction: (id: string, body: ItemActionRequest) =>
+    request<ItemActionResponse>(`/api/sessions/${encodeURIComponent(id)}/item-action`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getItemIcons: () => request<ItemIconsResponse>('/api/item-icons'),
+}
+
+// --- REST автора сценария (подэтап 7): доступ у любого авторизованного,
+// сервер сам отдаёт только свои сценарии (403 not_scenario_author иначе). ---
+
+/**
+ * 422 invalid_item/invalid_scenario несёт detail.issues — client.request
+ * сохраняет только code, поэтому PUT предмета идёт отдельным fetch с тем же
+ * CSRF-протоколом, чтобы показать автору список issues.
+ */
+export class AuthorItemValidationError extends ApiError {
+  readonly issues: IssueInfo[]
+  constructor(status: number, code: string, issues: IssueInfo[]) {
+    super(status, code, code)
+    this.name = 'AuthorItemValidationError'
+    this.issues = issues
+  }
+}
+
+const apiBaseUrl = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
+
+async function putAuthorItem(scenarioId: string, itemId: string, body: ItemUpdateRequest): Promise<ItemUpdateResponse> {
+  const path = `/api/author/scenarios/${encodeURIComponent(scenarioId)}/items/${encodeURIComponent(itemId)}`
+  const send = (token: string) => fetch(`${apiBaseUrl}${path}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
+    body: JSON.stringify(body),
+  })
+  let response = await send((await fetchCsrf()).token)
+  if (response.status === 403) {
+    const peek = await response.clone().json().catch(() => null) as { detail?: { code?: string } } | null
+    if (peek?.detail?.code === 'csrf_failed') response = await send((await fetchCsrf()).token)
+  }
+  if (!response.ok) {
+    const bodyJson = await response.json().catch(() => null) as { detail?: unknown } | null
+    const detail = bodyJson?.detail
+    if (detail && typeof detail === 'object' && 'code' in detail && typeof detail.code === 'string') {
+      const issues = 'issues' in detail && Array.isArray(detail.issues) ? detail.issues as IssueInfo[] : []
+      throw new AuthorItemValidationError(response.status, detail.code, issues)
+    }
+    throw new ApiError(response.status, typeof detail === 'string' ? detail : response.statusText)
+  }
+  return response.json() as Promise<ItemUpdateResponse>
+}
+
+export const author = {
+  listScenarios: () => request<AuthorScenario[]>('/api/author/scenarios'),
+  getItems: (scenarioId: string) =>
+    request<AuthorItemsResponse>(`/api/author/scenarios/${encodeURIComponent(scenarioId)}/items`),
+  updateItem: putAuthorItem,
 }
 
 export async function fetchCsrf(): Promise<CsrfToken> {

@@ -67,9 +67,9 @@ async def scenario_dir(
     """Временная копия content/ со сценарием под уникальным slug + очистка строк теста."""
     slug = f"it2-{uuid.uuid4().hex[:12]}"
     target = tmp_path / "content"
-    for sub in ("rulesets", "sheets", "bestiary"):
+    for sub in ("rulesets", "sheets", "bestiary", "classes"):
         shutil.copytree(content_dir / sub, target / sub)
-    for name in ("glossary.yaml", "classes.yaml", "skills.yaml"):
+    for name in ("glossary.yaml", "skills.yaml"):
         shutil.copy2(content_dir / name, target / name)
     scenarios = target / "scenarios"
     scenarios.mkdir()
