@@ -9,7 +9,7 @@ CreateSessionRequest; промпты рендерятся в памяти. Пр�
 
 import ast
 from pathlib import Path
-from typing import get_args
+from typing import cast, get_args
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 from ai_dnd.game.content import GameContent, load_game_content, load_party
 from ai_dnd.game.context import ContextBuilder
 from ai_dnd.game.decision import TurnDecision
-from ai_dnd.game.session import SessionSetup
+from ai_dnd.game.session import PlayerSeat, SessionSetup
 from ai_dnd.game.tones import TONE_INSTRUCTIONS, Tone
 from ai_dnd.game.tools import DmTools
 from ai_dnd.realtime import schemas as realtime_schemas
@@ -37,13 +37,14 @@ def content(content_dir: Path) -> GameContent:
 
 
 @pytest.fixture(scope="session")
-def seats(content_dir: Path, content: GameContent) -> tuple:
+def seats(content_dir: Path, content: GameContent) -> tuple[PlayerSeat, ...]:
     loaded, _ = load_party(content_dir, content, ["fighter"])
     return tuple(loaded)
 
 
-def setup_for(seats: tuple, tone: str) -> SessionSetup:
-    return SessionSetup(scenario=SCENARIO, language="ru", seats=seats, tone=tone)
+def setup_for(seats: tuple[PlayerSeat, ...], tone: str) -> SessionSetup:
+    # cast только для типизации: runtime-валидацию tone выполняет сама SessionSetup.
+    return SessionSetup(scenario=SCENARIO, language="ru", seats=seats, tone=cast(Tone, tone))
 
 
 # --- Пресеты: закрытый список, default пустой, свободный текст отвергается ---
@@ -58,7 +59,7 @@ def test_presets_complete() -> None:
             assert TONE_INSTRUCTIONS[tone].strip(), tone
 
 
-def test_setup_tone_validation(seats: tuple) -> None:
+def test_setup_tone_validation(seats: tuple[PlayerSeat, ...]) -> None:
     for tone in PRESETS:
         assert setup_for(seats, tone).tone == tone
     assert SessionSetup(scenario=SCENARIO, language="ru", seats=()).tone == "default"
@@ -69,13 +70,14 @@ def test_setup_tone_validation(seats: tuple) -> None:
 # --- Промпт рассказчика: блок тона present/absent, различие только в инструкции ---
 
 
-def test_narrator_prompt_tone_block(content: GameContent, seats: tuple) -> None:
+def test_narrator_prompt_tone_block(content: GameContent, seats: tuple[PlayerSeat, ...]) -> None:
     default = ContextBuilder(content, setup_for(seats, "default")).system_prompt
     humor = ContextBuilder(content, setup_for(seats, "humor")).system_prompt
     noir = ContextBuilder(content, setup_for(seats, "noir")).system_prompt
 
     assert "Narrative voice:" not in default
-    for prompt, tone in ((humor, "humor"), (noir, "noir")):
+    voiced: list[tuple[str, Tone]] = [(humor, "humor"), (noir, "noir")]
+    for prompt, tone in voiced:
         assert "Narrative voice:" in prompt, tone
         assert TONE_INSTRUCTIONS[tone] in prompt, tone
         assert "preserve the established facts, rules and player agency" in prompt
@@ -85,7 +87,7 @@ def test_narrator_prompt_tone_block(content: GameContent, seats: tuple) -> None:
     assert humor.replace(TONE_INSTRUCTIONS["humor"], TONE_INSTRUCTIONS["noir"]) == noir
 
 
-def test_planner_prompt_tone_free(content: GameContent, seats: tuple) -> None:
+def test_planner_prompt_tone_free(content: GameContent, seats: tuple[PlayerSeat, ...]) -> None:
     prompts = {
         tone: ContextBuilder(content, setup_for(seats, tone)).decision_prompt
         for tone in ("default", "humor", "noir")
@@ -99,15 +101,17 @@ def test_planner_prompt_tone_free(content: GameContent, seats: tuple) -> None:
 # --- Тон неизменяем после создания: ни инструмента, ни экшен-схемы ---
 
 
-def test_setup_tone_frozen(seats: tuple) -> None:
+def test_setup_tone_frozen(seats: tuple[PlayerSeat, ...]) -> None:
     frozen = setup_for(seats, "noir")
     with pytest.raises(ValidationError):
-        frozen.tone = "humor"
+        # Прямое присваивание frozen-модели отвергается pydantic; __setattr__ — тот же
+        # runtime-путь без обращения к read-only property на уровне типов.
+        frozen.__setattr__("tone", "humor")
     roundtrip = SessionSetup.model_validate(frozen.model_dump(mode="json"))
     assert roundtrip.tone == "noir"
 
 
-def test_no_tone_tool_or_action(content: GameContent, seats: tuple) -> None:
+def test_no_tone_tool_or_action(content: GameContent, seats: tuple[PlayerSeat, ...]) -> None:
     tools = DmTools(content, setup_for(seats, "noir"), RulesEngine(content.ruleset), SeededRng(1))
     names = [spec.name for spec in tools.specs()]
     assert names

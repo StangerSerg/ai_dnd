@@ -120,7 +120,12 @@ async def _unused_auth(connection: HTTPConnection) -> CurrentUser:
 def _endpoint(router: APIRouter, path: str, method: str) -> Callable[..., Awaitable[Any]]:
     """Функция эндпоинта роутера — вызывается напрямую, без HTTP."""
     for route in router.routes:
-        if isinstance(route, APIRoute) and route.path == path and method in route.methods:
+        if (
+            isinstance(route, APIRoute)
+            and route.path == path
+            and route.methods is not None
+            and method in route.methods
+        ):
             return route.endpoint
     raise AssertionError(f"Роутер не содержит {method} {path}")
 
@@ -531,7 +536,8 @@ async def test_author_put_validation_rejects_without_new_version(items_env: _Env
                 resources=env.resources,
             )
         assert error.value.status_code == 422
-        detail = error.value.detail
+        # HTTPException.detail типизирован как str, но эндпоинт отдаёт dict с кодом и issues.
+        detail = cast(dict[str, Any], error.value.detail)
         assert detail["code"] == code
         assert detail["issues"]
         return list(detail["issues"])
@@ -779,7 +785,7 @@ async def test_item_action_state_gates(items_env: _Env) -> None:
                 session_id=room.session_id, body=body, user=env.author, resources=env.resources
             )
         assert error.value.status_code == status
-        assert error.value.detail == {"code": code}
+        assert cast(dict[str, str], error.value.detail) == {"code": code}
 
     # Нокаут: правим снимок состояния напрямую.
     saved = await _live_state(env, room.session_id)
@@ -825,7 +831,7 @@ async def test_item_action_state_gates(items_env: _Env) -> None:
             session_id=room_off.session_id, body=body, user=env.author, resources=env.resources
         )
     assert off.value.status_code == 409
-    assert off.value.detail == {"code": "items_disabled"}
+    assert cast(dict[str, str], off.value.detail) == {"code": "items_disabled"}
 
 
 async def test_item_action_tool_error_and_actor_forcing(items_env: _Env) -> None:
@@ -849,7 +855,7 @@ async def test_item_action_tool_error_and_actor_forcing(items_env: _Env) -> None
             resources=env.resources,
         )
     assert error.value.status_code == 422
-    assert error.value.detail["code"] == "item_not_consumable"
+    assert cast(dict[str, str], error.value.detail)["code"] == "item_not_consumable"
     # Отказ не записывает событий и не трогает состояние.
     state = await _live_state(env, room.session_id)
     assert item_stock(state, "fighter", "steel_sword") == 1

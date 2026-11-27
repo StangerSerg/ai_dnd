@@ -132,7 +132,9 @@ def classes_for_version_info(info: dict[str, Any], content_dir: Path) -> dict[st
 
 
 def _legacy_pack_id(ruleset_ref: object) -> str:
-    pack_id = {"dnd5e-srd@1": "fantasy-core", "worms-space@1": "worms-ship"}.get(ruleset_ref)
+    # Ключи — строки, но get принимает object: неизвестная ссылка даёт None, не TypeError.
+    legacy_packs: dict[object, str] = {"dnd5e-srd@1": "fantasy-core", "worms-space@1": "worms-ship"}
+    pack_id = legacy_packs.get(ruleset_ref)
     if pack_id is None:
         raise ValueError(f"Для старой версии неизвестен пакет классов: {ruleset_ref!r}")
     return pack_id

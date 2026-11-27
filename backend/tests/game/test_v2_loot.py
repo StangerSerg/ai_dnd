@@ -17,7 +17,7 @@ import pytest
 from ai_dnd.ai.gateway import LLMGateway
 from ai_dnd.ai.schemas import ToolCall
 from ai_dnd.game.content import GameContent, load_game_content, load_party, new_session_state
-from ai_dnd.game.events import ItemGranted, Revealed
+from ai_dnd.game.events import ItemGranted, JournalEvent, Revealed
 from ai_dnd.game.journal import MemoryJournal
 from ai_dnd.game.master import GameMaster
 from ai_dnd.game.session import SessionSetup, SessionState, apply_events, item_stock
@@ -158,7 +158,7 @@ async def start_fight(master: GameMaster, encounter_id: str) -> None:
     await master._commit(outcome.events)
 
 
-async def win_with_strike(master: GameMaster, encounter_id: str) -> list:
+async def win_with_strike(master: GameMaster, encounter_id: str) -> list[JournalEvent]:
     """Инициатива и попадание заданы скриптом: воин убивает слабака первым ударом."""
     await start_fight(master, encounter_id)
     assert master.current_combatant == "fighter"
@@ -169,7 +169,7 @@ async def win_with_strike(master: GameMaster, encounter_id: str) -> list:
     return events
 
 
-def granted_of(events: list) -> list[ItemGranted]:
+def granted_of(events: list[JournalEvent]) -> list[ItemGranted]:
     return [event for event in events if isinstance(event, ItemGranted)]
 
 

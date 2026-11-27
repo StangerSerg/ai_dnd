@@ -167,7 +167,9 @@ async def test_trivial_prop_whitelist(
 
     normalized = grant(master, actor_id="fighter", name="  Ordinary   PEBBLE ")
     assert not normalized.failed, normalized.result
-    assert normalized.events[0].name == "Ordinary PEBBLE"
+    normalized_event = normalized.events[0]
+    assert isinstance(normalized_event, ItemGranted)
+    assert normalized_event.name == "Ordinary PEBBLE"
     lookalike = grant(master, actor_id="fighter", name="golden pebble")
     assert lookalike.result["error"] == "improvised_item_not_trivial"
     empty = grant(master, actor_id="fighter")

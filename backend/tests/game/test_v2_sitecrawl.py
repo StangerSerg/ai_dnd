@@ -18,7 +18,7 @@ import pytest
 from ai_dnd.ai.gateway import LLMGateway
 from ai_dnd.ai.schemas import ToolCall
 from ai_dnd.game.content import GameContent, load_game_content, load_party, new_session_state
-from ai_dnd.game.events import ItemGranted, Revealed
+from ai_dnd.game.events import ItemGranted, JournalEvent, Revealed
 from ai_dnd.game.journal import MemoryJournal
 from ai_dnd.game.master import GameMaster
 from ai_dnd.game.session import SessionSetup, SessionState, apply_events, item_stock
@@ -141,11 +141,11 @@ async def roll(
     return outcome
 
 
-def granted_of(events: list) -> list[ItemGranted]:
+def granted_of(events: list[JournalEvent]) -> list[ItemGranted]:
     return [event for event in events if isinstance(event, ItemGranted)]
 
 
-def assert_find_order(events: list) -> None:
+def assert_find_order(events: list[JournalEvent]) -> None:
     """CheckResolved -> Revealed предмета -> ItemGranted, ровно один Revealed на предмет."""
     resolved = next(i for i, event in enumerate(events) if isinstance(event, CheckResolved))
     for index, event in enumerate(events):
@@ -233,8 +233,10 @@ async def test_repeat_searches_exhaust_pool(
         grants = granted_of(outcome.events)
         if attempt < 3:
             assert len(grants) == 1
-            assert grants[0].item_id not in found
-            found.append(grants[0].item_id)
+            item_id = grants[0].item_id
+            assert item_id is not None
+            assert item_id not in found
+            found.append(item_id)
         else:
             assert not grants
             assert "found" not in outcome.result

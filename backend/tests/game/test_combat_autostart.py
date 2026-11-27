@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace, TracebackType
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 import httpx2 as httpx
 import pytest
@@ -47,6 +47,8 @@ from ai_dnd.rules.state import Actor, Resource
 SCENARIO = "shadow-over-millford"
 PARTY = ("fighter", "rogue", "cleric")
 
+_T = TypeVar("_T")
+
 
 class _ScriptedThenSeeded:
     """Сначала заданные броски (инициатива, атака), затем повторяемый генератор."""
@@ -59,6 +61,14 @@ class _ScriptedThenSeeded:
         if self._scripted.remaining > 0:
             return self._scripted.randint(low, high)
         return self._seeded.randint(low, high)
+
+    def choice(self, options: Sequence[_T]) -> _T:
+        # Как в SeededRng/ScriptedRng: единственный вариант не тратит бросок.
+        if not options:
+            raise ValueError("choice из пустой последовательности")
+        if len(options) == 1:
+            return options[0]
+        return options[self.randint(0, len(options) - 1)]
 
 
 class _RowJournal:
